@@ -148,12 +148,13 @@ function getConfig() {
         productName: "AnitaCode",
         artifactName: "anitacode-desktop-${os}-${arch}.${ext}",
         protocols: { name: "AnitaCode", schemes: ["anitacode"] },
+        publish: { provider: "github", owner: "pisantifrancesco89", repo: "anitacode", channel: "latest" },
         mac: {
           ...base.mac,
           icon: "resources/icons/custom/icon.icns",
         },
         dmg: {
-          sign: true,
+          sign: false,
         },
         win: {
           ...base.win,
