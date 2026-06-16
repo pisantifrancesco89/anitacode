@@ -1052,6 +1052,20 @@ export default function Layout(props: ParentProps) {
           ]
         : []),
       {
+        id: "agents.open",
+        title: "Agent Builder",
+        category: "AnitaCode",
+        keybind: "mod+shift+a",
+        onSelect: () => navigate("/agents"),
+      },
+      {
+        id: "kanban.open",
+        title: "Kanban Board",
+        category: "AnitaCode",
+        keybind: "mod+shift+k",
+        onSelect: () => navigate("/kanban"),
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),
@@ -2348,6 +2362,12 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+      agentsLabel={() => "Agent Builder"}
+      agentsKeybind={() => command.keybind("agents.open")}
+      onOpenAgents={() => navigate("/agents")}
+      kanbanLabel={() => "Kanban Board"}
+      kanbanKeybind={() => command.keybind("kanban.open")}
+      onOpenKanban={() => navigate("/kanban")}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }

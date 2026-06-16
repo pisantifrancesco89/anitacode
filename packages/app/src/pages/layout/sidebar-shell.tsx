@@ -30,6 +30,12 @@ export const SidebarContent = (props: {
   onOpenSettings: () => void
   helpLabel: Accessor<string>
   onOpenHelp: () => void
+  agentsLabel?: Accessor<string>
+  agentsKeybind?: Accessor<string | undefined>
+  onOpenAgents?: () => void
+  kanbanLabel?: Accessor<string>
+  kanbanKeybind?: Accessor<string | undefined>
+  onOpenKanban?: () => void
   renderPanel: () => JSX.Element
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
@@ -90,6 +96,36 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
+          <Show when={props.onOpenAgents}>
+            <TooltipKeybind
+              placement={placement()}
+              title={props.agentsLabel?.() ?? ""}
+              keybind={props.agentsKeybind?.() ?? ""}
+            >
+              <IconButton
+                icon="brain"
+                variant="ghost"
+                size="large"
+                onClick={() => props.onOpenAgents?.()}
+                aria-label={props.agentsLabel?.()}
+              />
+            </TooltipKeybind>
+          </Show>
+          <Show when={props.onOpenKanban}>
+            <TooltipKeybind
+              placement={placement()}
+              title={props.kanbanLabel?.() ?? ""}
+              keybind={props.kanbanKeybind?.() ?? ""}
+            >
+              <IconButton
+                icon="checklist"
+                variant="ghost"
+                size="large"
+                onClick={() => props.onOpenKanban?.()}
+                aria-label={props.kanbanLabel?.()}
+              />
+            </TooltipKeybind>
+          </Show>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"
