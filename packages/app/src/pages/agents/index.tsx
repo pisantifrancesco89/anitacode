@@ -1,131 +1,146 @@
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, For, Show, createMemo } from "solid-js"
 import type { AgentForm, AgentNode } from "./types"
 import { AgentEditor } from "./agent-editor"
 import { AgentTreeView } from "./agent-tree"
+import { useServerSync } from "@/context/server-sync"
 
-const DEFAULT_AGENTS: AgentNode[] = [
-  {
-    name: "orchestrator",
-    description: "CEO - delegates to subagents automatically",
-    mode: "primary",
-    color: "#6C5CE7",
-    children: [
-      {
-        name: "planner",
-        description: "Creates development plans",
-        mode: "subagent",
-        color: "#00B894",
-        children: [],
-      },
-      {
-        name: "builder",
-        description: "Writes production code",
-        mode: "subagent",
-        color: "#74B9FF",
-        children: [
-          {
-            name: "backend-specialist",
-            description: "API and business logic",
-            mode: "subagent",
-            color: "#A29BFE",
-            children: [],
-          },
-          {
-            name: "frontend-specialist",
-            description: "UI components and pages",
-            mode: "subagent",
-            color: "#FD79A8",
-            children: [],
-          },
-          {
-            name: "database-specialist",
-            description: "Schema design and migrations",
-            mode: "subagent",
-            color: "#55EFC4",
-            children: [],
-          },
-        ],
-      },
-      {
-        name: "reviewer",
-        description: "Reviews code quality",
-        mode: "subagent",
-        color: "#E17055",
-        children: [],
-      },
-      {
-        name: "documenter",
-        description: "Creates documentation",
-        mode: "subagent",
-        color: "#FDCB6E",
-        children: [],
-      },
-      {
-        name: "qa-engineer",
-        description: "Testing and QA",
-        mode: "subagent",
-        color: "#FD79A8",
-        children: [],
-      },
-      {
-        name: "security-specialist",
-        description: "Security audits",
-        mode: "subagent",
-        color: "#E17055",
-        children: [],
-      },
-      {
-        name: "devops-specialist",
-        description: "CI/CD and deployment",
-        mode: "subagent",
-        color: "#74B9FF",
-        children: [],
-      },
-    ],
-  },
-]
+const BUILTIN_AGENTS = ["plan", "build", "general", "explore", "scout", "title", "summary", "compaction"]
 
 export default function AgentsPage() {
+  const sync = useServerSync()
   const [viewMode, setViewMode] = createSignal<"tree" | "editor">("tree")
   const [selectedAgent, setSelectedAgent] = createSignal<string>("")
   const [editingAgent, setEditingAgent] = createSignal<AgentForm | undefined>()
-  const [treeData, setTreeData] = createSignal<AgentNode>(DEFAULT_AGENTS[0])
+  const [saving, setSaving] = createSignal(false)
+
+  const config = createMemo(() => sync().data.config)
+  const providerList = createMemo(() => sync().data.provider)
+
+  const agentList = createMemo(() => {
+    const agents = config()?.agent ?? {}
+    const list = Object.keys(agents).filter((name) => !BUILTIN_AGENTS.includes(name))
+    const result: AgentNode[] = []
+    for (const name of list) {
+      const cfg = agents[name]
+      if (!cfg || cfg.hidden) continue
+      result.push({
+        name,
+        description: cfg.description ?? "",
+        mode: (cfg.mode as "subagent" | "primary" | "all") ?? "subagent",
+        color: cfg.color ?? "#6C5CE7",
+        children: [],
+      })
+    }
+    return result
+  })
+
+  const models = createMemo(() => {
+    const all = providerList()?.all
+    if (!all) return []
+    const result: Array<{ id: string; providerId: string; name: string }> = []
+    for (const [pid, provider] of all) {
+      if (!provider.models) continue
+      for (const [mid, model] of Object.entries(provider.models)) {
+        result.push({ id: `${pid}/${mid}`, providerId: pid, name: typeof model === "object" ? (model as any).name ?? mid : mid })
+      }
+    }
+    return result
+  })
+
+  const treeData = createMemo((): AgentNode => {
+    const list = agentList()
+    const primaries = list.filter((a) => a.mode === "primary")
+    const root = primaries[0] ?? { name: "orchestrator", mode: "primary" as const, children: [], description: "", color: "#6C5CE7" }
+    const subagents = list.filter((a) => a.mode === "subagent" && a.name !== root.name)
+    root.children = subagents
+    return root
+  })
 
   const handleNodeSelect = (name: string) => {
     setSelectedAgent(name)
-    const node = findNode(treeData(), name)
-    if (node) {
+    const cfg = config()?.agent
+    const agentCfg = cfg ? cfg[name] : undefined
+    if (agentCfg) {
+      const perm = (agentCfg.permission && typeof agentCfg.permission === "object" ? agentCfg.permission : {}) as Record<string, string>
       setEditingAgent({
-        name: node.name,
-        description: node.description,
-        mode: node.mode,
-        model: "",
-        temperature: 0.3,
-        topP: 1,
-        maxSteps: 25,
-        color: node.color,
-        hidden: false,
-        disabled: false,
-        permission: { edit: "ask", bash: "ask", webfetch: "ask", doomLoop: "allow", externalDirectory: "ask" },
-        tools: {},
-        prompt: "",
+        name,
+        description: agentCfg.description ?? "",
+        mode: (agentCfg.mode as "subagent" | "primary" | "all") ?? "subagent",
+        model: agentCfg.model ?? "",
+        temperature: agentCfg.temperature ?? 0.3,
+        topP: agentCfg.top_p ?? 1,
+        maxSteps: agentCfg.maxSteps ?? agentCfg.steps ?? 25,
+        color: typeof agentCfg.color === "string" ? agentCfg.color : "#6C5CE7",
+        hidden: agentCfg.hidden ?? false,
+        disabled: agentCfg.disable ?? false,
+        permission: {
+          edit: (perm.edit ?? "ask") as "ask" | "allow" | "deny",
+          bash: (perm.bash ?? "ask") as "ask" | "allow" | "deny",
+          webfetch: (perm.webfetch ?? "ask") as "ask" | "allow" | "deny",
+          doomLoop: (perm.doom_loop ?? "allow") as "ask" | "allow" | "deny",
+          externalDirectory: (perm.external_directory ?? "ask") as "ask" | "allow" | "deny",
+        },
+        tools: agentCfg.tools ?? {},
+        prompt: agentCfg.prompt ?? "",
       })
       setViewMode("editor")
     }
   }
 
-  const handleSave = (form: AgentForm) => {
-    console.log("Saving agent:", form)
-    setViewMode("tree")
-    setEditingAgent(undefined)
+  const handleSave = async (form: AgentForm) => {
+    setSaving(true)
+    try {
+      const currentConfig = config() ?? {}
+      const currentAgent = (currentConfig as any).agent ?? {}
+
+      const agentConfig: any = {
+        description: form.description || undefined,
+        mode: form.mode,
+        model: form.model || undefined,
+        temperature: form.temperature,
+        top_p: form.topP,
+        maxSteps: form.maxSteps,
+        color: form.color,
+        hidden: form.hidden || undefined,
+        disable: form.disabled || undefined,
+        permission: {
+          ...form.permission,
+          doom_loop: form.permission.doomLoop,
+          external_directory: form.permission.externalDirectory,
+        },
+        tools: Object.keys(form.tools).length ? form.tools : undefined,
+        prompt: form.prompt || undefined,
+      }
+
+      const updatedAgent = { ...currentAgent, [form.name]: agentConfig }
+      await sync().updateConfig({ ...currentConfig, agent: updatedAgent } as any)
+    } finally {
+      setSaving(false)
+      setViewMode("tree")
+      setEditingAgent(undefined)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!editingAgent()) return
+    setSaving(true)
+    try {
+      const currentConfig = config() ?? {}
+      const currentAgent = { ...((currentConfig as any).agent ?? {}) }
+      delete currentAgent[editingAgent()!.name]
+      await sync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
+    } finally {
+      setSaving(false)
+      setViewMode("tree")
+      setEditingAgent(undefined)
+    }
   }
 
   const handleNewAgent = () => {
     setEditingAgent(undefined)
+    setSelectedAgent("")
     setViewMode("editor")
   }
-
-  const agentList = flattenTree(treeData())
 
   return (
     <div style={{ display: "flex", height: "100%", "min-height": "100vh" }}>
@@ -158,7 +173,7 @@ export default function AgentsPage() {
         </div>
 
         <div style={{ flex: 1, overflow: "auto" }}>
-          <For each={agentList}>
+          <For each={agentList()}>
             {(agent) => (
               <div
                 onClick={() => handleNodeSelect(agent.name)}
@@ -189,6 +204,10 @@ export default function AgentsPage() {
           </For>
         </div>
 
+        <Show when={saving()}>
+          <div style={{ "text-align": "center", "font-size": "12px", color: "#6C5CE7" }}>Saving...</div>
+        </Show>
+
         <button
           onClick={handleNewAgent}
           style={{
@@ -214,7 +233,12 @@ export default function AgentsPage() {
         </Show>
 
         <Show when={viewMode() === "editor"}>
-          <AgentEditor initial={editingAgent()} onSave={handleSave} />
+          <AgentEditor
+            initial={editingAgent()}
+            models={models()}
+            onSave={handleSave}
+            onDelete={editingAgent() ? handleDelete : undefined}
+          />
         </Show>
       </main>
     </div>
@@ -233,17 +257,4 @@ function tabStyle(active: boolean) {
     "font-size": "13px",
     "font-weight": "bold",
   } as const
-}
-
-function findNode(root: AgentNode, name: string): AgentNode | null {
-  if (root.name === name) return root
-  for (const child of root.children) {
-    const found = findNode(child, name)
-    if (found) return found
-  }
-  return null
-}
-
-function flattenTree(root: AgentNode): AgentNode[] {
-  return [root, ...root.children.flatMap((child) => flattenTree(child))]
 }

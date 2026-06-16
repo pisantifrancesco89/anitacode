@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import type { AgentForm } from "./types"
 
 const MODES = ["subagent", "primary", "all"] as const
@@ -36,6 +36,7 @@ function getPerm(form: AgentForm, key: string): string {
 
 export function AgentEditor(props: {
   initial?: AgentForm
+  models?: Array<{ id: string; providerId: string; name: string }>
   onSave: (form: AgentForm) => void
   onDelete?: () => void
 }) {
@@ -60,10 +61,20 @@ export function AgentEditor(props: {
     })
   }
 
+  const modelOptions = () => props.models ?? []
+  const modelGroups = () => {
+    const groups: Record<string, Array<{ id: string; name: string }>> = {}
+    for (const m of modelOptions()) {
+      if (!groups[m.providerId]) groups[m.providerId] = []
+      groups[m.providerId].push({ id: m.id, name: m.name })
+    }
+    return groups
+  }
+
   return (
     <div style="display: flex; flex-direction: column; gap: 16px; padding: 16px; max-width: 600px">
       <h3 style="margin: 0; font-size: 18px">
-        {props.initial ? `Edit: ${props.initial.name}` : "New Agent"}
+        {props.initial?.name ? `Edit: ${props.initial.name}` : "New Agent"}
       </h3>
 
       <label>
@@ -73,7 +84,8 @@ export function AgentEditor(props: {
           value={form().name}
           onInput={(e) => updateField("name", e.currentTarget.value)}
           placeholder="agent-name"
-          style="display: block; width: 100%; padding: 8px; margin: 4px 0; border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; font-size: 14px; box-sizing: border-box"
+          disabled={!!props.initial?.name}
+          style={inputStyle(!!props.initial?.name)}
         />
       </label>
 
@@ -84,7 +96,7 @@ export function AgentEditor(props: {
           value={form().description}
           onInput={(e) => updateField("description", e.currentTarget.value)}
           placeholder="What this agent does"
-          style="display: block; width: 100%; padding: 8px; margin: 4px 0; border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; font-size: 14px; box-sizing: border-box"
+          style={inputStyle(false)}
         />
       </label>
 
@@ -94,7 +106,7 @@ export function AgentEditor(props: {
           <select
             value={form().mode}
             onInput={(e) => updateField("mode", e.currentTarget.value)}
-            style="display: block; width: 100%; padding: 8px; margin: 4px 0; border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; font-size: 14px; box-sizing: border-box; cursor: pointer"
+            style={selectStyle()}
           >
             <For each={MODES}>
               {(mode) => <option value={mode}>{mode}</option>}
@@ -104,13 +116,32 @@ export function AgentEditor(props: {
 
         <label style="flex: 1">
           Model
-          <input
-            type="text"
-            value={form().model}
-            onInput={(e) => updateField("model", e.currentTarget.value)}
-            placeholder="provider/model-id"
-            style="display: block; width: 100%; padding: 8px; margin: 4px 0; border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; font-size: 14px; box-sizing: border-box"
-          />
+          <Show when={modelOptions().length > 0} fallback={
+            <input
+              type="text"
+              value={form().model}
+              onInput={(e) => updateField("model", e.currentTarget.value)}
+              placeholder="provider/model-id"
+              style={inputStyle(false)}
+            />
+          }>
+            <select
+              value={form().model}
+              onInput={(e) => updateField("model", e.currentTarget.value)}
+              style={selectStyle()}
+            >
+              <option value="">(default)</option>
+              <For each={Object.entries(modelGroups())}>
+                {([provider, models]) => (
+                  <optgroup label={provider}>
+                    <For each={models}>
+                      {(model) => <option value={model.id}>{model.name}</option>}
+                    </For>
+                  </optgroup>
+                )}
+              </For>
+            </select>
+          </Show>
         </label>
       </div>
 
@@ -136,7 +167,7 @@ export function AgentEditor(props: {
             max="100"
             value={form().maxSteps}
             onInput={(e) => updateField("maxSteps", parseInt(e.currentTarget.value))}
-            style="display: block; width: 100%; padding: 8px; margin: 4px 0; border: 1px solid #444; border-radius: 6px; background: #1a1a2e; color: #fff; font-size: 14px; box-sizing: border-box"
+            style={inputStyle(false)}
           />
         </label>
       </div>
@@ -168,7 +199,7 @@ export function AgentEditor(props: {
             const perm = getPerm(form(), key)
             return (
               <label style="display: flex; align-items: center; gap: 8px; font-size: 13px">
-                {key}
+                {key === "doomLoop" ? "doom_loop" : key === "externalDirectory" ? "external" : key}
                 <select
                   value={perm}
                   onInput={(e) => updatePermission(key, e.currentTarget.value)}
@@ -258,4 +289,24 @@ export function AgentEditor(props: {
       </div>
     </div>
   )
+}
+
+function inputStyle(disabled?: boolean) {
+  return {
+    display: "block",
+    width: "100%",
+    padding: "8px",
+    margin: "4px 0",
+    border: "1px solid #444",
+    "border-radius": "6px",
+    background: disabled ? "#222" : "#1a1a2e",
+    color: disabled ? "#666" : "#fff",
+    "font-size": "14px",
+    "box-sizing": "border-box",
+    cursor: disabled ? "not-allowed" : "text",
+  } as const
+}
+
+function selectStyle() {
+  return { ...inputStyle(), cursor: "pointer" }
 }

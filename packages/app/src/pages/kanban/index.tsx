@@ -1,9 +1,9 @@
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, For, Show, createMemo } from "solid-js"
 import type { Task, TaskStatus, TaskPriority } from "./types"
 import { COLUMNS } from "./types"
 import { KanbanColumn } from "./kanban-column"
 import { TaskDetail } from "./task-detail"
-import { mockTasks } from "./mock-data"
+import { useServerSync } from "@/context/server-sync"
 
 const AGENTS = [
   "all", "orchestrator", "planner", "builder", "reviewer", "documenter",
@@ -13,16 +13,62 @@ const AGENTS = [
 
 const PRIORITIES: Array<TaskPriority | "all"> = ["all", "high", "medium", "low"]
 
-let idCounter = 100
+let idCounter = 1000
+
+function taskFromTodo(sessionId: string, todo: { content: string; status: string; priority: string }, idx: number): Task {
+  return {
+    id: `task-${sessionId}-${idx}`,
+    title: todo.content,
+    description: "",
+    status: mapTodoStatus(todo.status),
+    priority: (todo.priority as TaskPriority) || "medium",
+    agentName: "",
+    projectName: "",
+    sessionId,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+}
+
+function mapTodoStatus(status: string): TaskStatus {
+  switch (status) {
+    case "pending": return "todo"
+    case "in_progress": return "in_progress"
+    case "completed": return "done"
+    case "cancelled": return "cancelled"
+    default: return "todo"
+  }
+}
 
 export default function KanbanPage() {
-  const [tasks, setTasks] = createSignal<Task[]>(mockTasks)
+  const sync = useServerSync()
   const [selectedTask, setSelectedTask] = createSignal<Task | null>(null)
   const [agentFilter, setAgentFilter] = createSignal("all")
   const [priorityFilter, setPriorityFilter] = createSignal<"all" | TaskPriority>("all")
+  const [localTasks, setLocalTasks] = createSignal<Task[]>([])
+
+  const sessionTodos = createMemo(() => {
+    const store = (sync().data as any)?.session_todo
+    if (!store) return []
+    const tasks: Task[] = []
+    for (const [sessionId, todos] of Object.entries(store)) {
+      if (!Array.isArray(todos)) continue
+      todos.forEach((todo: any, idx: number) => {
+        tasks.push(taskFromTodo(sessionId, todo, idx))
+      })
+    }
+    return tasks
+  })
+
+  const allTasks = createMemo(() => {
+    const remote = sessionTodos()
+    const local = localTasks()
+    const localIds = new Set(local.map((t) => t.id))
+    return [...local, ...remote.filter((t) => !localIds.has(t.id))]
+  })
 
   const filtered = () => {
-    return tasks().filter((t) => {
+    return allTasks().filter((t) => {
       if (agentFilter() !== "all" && t.agentName !== agentFilter()) return false
       if (priorityFilter() !== "all" && t.priority !== priorityFilter()) return false
       return true
@@ -34,7 +80,10 @@ export default function KanbanPage() {
   }
 
   const handleDrop = (taskId: string, newStatus: TaskStatus) => {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, updatedAt: Date.now() } : t)))
+    const updateTasks = (prev: Task[]) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, updatedAt: Date.now() } : t))
+
+    setLocalTasks(updateTasks)
   }
 
   const handleTaskClick = (task: Task) => {
@@ -42,31 +91,35 @@ export default function KanbanPage() {
   }
 
   const handleSave = (updated: Task) => {
-    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+    setLocalTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
     setSelectedTask(null)
   }
 
   const handleDelete = () => {
     const id = selectedTask()?.id
-    setTasks((prev) => prev.filter((t) => t.id !== id))
+    setLocalTasks((prev) => prev.filter((t) => t.id !== id))
     setSelectedTask(null)
   }
 
   const handleAddTask = () => {
     const newTask: Task = {
-      id: `task-${++idCounter}`,
+      id: `task-local-${++idCounter}`,
       title: "New Task",
       description: "",
       status: "todo",
       priority: "medium",
       agentName: "builder",
-      projectName: "AnitaCode",
-      sessionId: "ses_new",
+      projectName: "",
+      sessionId: "",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    setTasks((prev) => [newTask, ...prev])
+    setLocalTasks((prev) => [newTask, ...prev])
   }
+
+  const todosLoading = createMemo(() => {
+    return !(sync().data as any)?.session_todo
+  })
 
   return (
     <div style={{ display: "flex", "flex-direction": "column", height: "100%", "min-height": "100vh", "background-color": "#0d0d1a" }}>
@@ -101,24 +154,32 @@ export default function KanbanPage() {
               {(p) => <option value={p}>{p === "all" ? "All Priorities" : p}</option>}
             </For>
           </select>
+
+          <Show when={todosLoading()}>
+            <span style={{ color: "#666", "font-size": "12px" }}>Loading sessions...</span>
+          </Show>
         </div>
 
-        <button
-          onClick={handleAddTask}
-          style={{
-            "margin-left": "auto",
-            padding: "8px 16px",
-            "border-radius": "8px",
-            border: "none",
-            background: "#6C5CE7",
-            color: "#fff",
-            cursor: "pointer",
-            "font-size": "13px",
-            "font-weight": "bold",
-          }}
-        >
-          + Add Task
-        </button>
+        <div style={{ "margin-left": "auto", display: "flex", gap: "8px", "align-items": "center" }}>
+          <span style={{ color: "#666", "font-size": "11px" }}>
+            {allTasks().length} tasks ({sessionTodos().length} from sessions)
+          </span>
+          <button
+            onClick={handleAddTask}
+            style={{
+              padding: "8px 16px",
+              "border-radius": "8px",
+              border: "none",
+              background: "#6C5CE7",
+              color: "#fff",
+              cursor: "pointer",
+              "font-size": "13px",
+              "font-weight": "bold",
+            }}
+          >
+            + Add Task
+          </button>
+        </div>
       </header>
 
       <main
