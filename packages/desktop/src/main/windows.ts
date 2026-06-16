@@ -3,6 +3,7 @@ import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
 import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import oc2ThemeJson from "../../../ui/src/theme/themes/oc-2.json"
 import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol } from "electron"
+import { CHANNEL } from "./constants"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
@@ -62,6 +63,7 @@ export function getBackgroundColor(): string | undefined {
 }
 
 function iconsDir() {
+  if (CHANNEL === "custom") return app.isPackaged ? join(process.resourcesPath, "icons", "custom") : join(root, "../../resources/icons/custom")
   return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
 }
 
@@ -117,6 +119,29 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
+const windowMap = new Map<string, BrowserWindow>()
+
+export function getWindowCount() {
+  return BrowserWindow.getAllWindows().length
+}
+
+export function createWindow(id: string) {
+  const existing = windowMap.get(id)
+  if (existing && !existing.isDestroyed()) {
+    existing.focus()
+    return existing
+  }
+
+  const win = createMainWindow()
+  windowMap.set(id, win)
+
+  win.on("closed", () => {
+    windowMap.delete(id)
+  })
+
+  return win
+}
+
 export function createMainWindow() {
   const state = windowState({
     defaultWidth: 1280,
@@ -131,7 +156,7 @@ export function createMainWindow() {
     height: state.height,
     show: false,
     autoHideMenuBar: true,
-    title: "OpenCode",
+    title: CHANNEL === "custom" ? "AnitaCode" : "OpenCode",
     icon: iconPath(),
     backgroundColor: backgroundColor ?? defaultBackgroundColor(),
     ...(process.platform === "darwin"

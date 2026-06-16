@@ -19,6 +19,7 @@ import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import { createTouchBar } from "./touchbar"
 import {
   getDefaultServerUrl,
   preferAppEnv,
@@ -43,11 +44,13 @@ const APP_NAMES: Record<string, string> = {
   dev: "OpenCode Dev",
   beta: "OpenCode Beta",
   prod: "OpenCode",
+  custom: "AnitaCode",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  custom: "ai.anitacode.opencode",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
@@ -238,6 +241,12 @@ const main = Effect.gen(function* () {
 
   if (!TEST_ONBOARDING) migrate()
   app.setAsDefaultProtocolClient("opencode")
+  app.setLoginItemSettings({ openAtLogin: false })
+
+  app.on("continue-activity", (_event, type, userInfo) => {
+    logger.log("handoff continue-activity", { type, userInfo })
+  })
+
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
@@ -349,6 +358,7 @@ const main = Effect.gen(function* () {
 
   mainWindow = createMainWindow()
   if (mainWindow) {
+    createTouchBar(mainWindow)
     createMenu({
       trigger: (id) => {
         const win = BrowserWindow.getFocusedWindow() ?? mainWindow

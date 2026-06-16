@@ -186,6 +186,16 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     ],
   },
   {
+    id: "agents",
+    label: "Agents",
+    items: [
+      { type: "item", label: "Agent Builder", command: "agents.open", accelerator: { macos: "Cmd+Shift+A" } },
+      { type: "item", label: "Kanban Board", command: "kanban.open", accelerator: { macos: "Cmd+Shift+K" } },
+      { type: "separator" },
+      { type: "item", label: "New Session", command: "session.new", accelerator: { macos: "Shift+Cmd+S" } },
+    ],
+  },
+  {
     id: "window",
     label: "Window",
     role: "windowMenu",

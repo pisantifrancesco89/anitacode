@@ -93,6 +93,17 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
+  setDockBadge: (count) => ipcRenderer.invoke("set-dock-badge", count),
+  getDockBadge: () => ipcRenderer.invoke("get-dock-badge"),
+  getLoginItemSettings: () => ipcRenderer.invoke("get-login-item-settings"),
+  setLoginItemSettings: (settings) => ipcRenderer.invoke("set-login-item-settings", settings),
+  startPowerSave: () => ipcRenderer.invoke("start-power-save"),
+  stopPowerSave: () => ipcRenderer.invoke("stop-power-save"),
+  onTouchbarCommand: (cb) => {
+    const handler = (_: unknown, command: string) => cb(command)
+    ipcRenderer.on("touchbar-command", handler)
+    return () => ipcRenderer.removeListener("touchbar-command", handler)
+  },
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),
   setWindowFocus: () => ipcRenderer.invoke("set-window-focus"),
   showWindow: () => ipcRenderer.invoke("show-window"),

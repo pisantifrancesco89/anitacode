@@ -28,7 +28,7 @@ async function signWindows(configuration: { path: string }) {
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "custom") return raw
   return "dev"
 })()
 
@@ -36,6 +36,7 @@ const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  custom: "ai.anitacode.opencode",
 } as const
 
 const getBase = (appId: string): Configuration => ({
@@ -60,19 +61,19 @@ const getBase = (appId: string): Configuration => ({
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
     },
   ],
-  mac: {
-    category: "public.app-category.developer-tools",
-    icon: `resources/icons/icon.icns`,
-    hardenedRuntime: true,
-    gatekeeperAssess: false,
-    entitlements: "resources/entitlements.plist",
-    entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
-    target: ["dmg", "zip"],
-  },
-  dmg: {
-    sign: true,
-  },
+    mac: {
+      category: "public.app-category.developer-tools",
+      icon: `resources/icons/icon.icns`,
+      hardenedRuntime: false,
+      gatekeeperAssess: false,
+      entitlements: "resources/entitlements.plist",
+      entitlementsInherit: "resources/entitlements.plist",
+      notarize: false,
+      target: ["dmg", "zip"],
+    },
+    dmg: {
+      sign: false,
+    },
   protocols: {
     name: "OpenCode",
     schemes: ["opencode"],
@@ -138,6 +139,37 @@ function getConfig() {
         publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
         deb: { fpm: [legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [legacyDesktopEntryFpm] },
+      }
+    }
+    case "custom": {
+      return {
+        ...base,
+        appId,
+        productName: "AnitaCode",
+        artifactName: "anitacode-desktop-${os}-${arch}.${ext}",
+        protocols: { name: "AnitaCode", schemes: ["anitacode"] },
+        mac: {
+          ...base.mac,
+          icon: "resources/icons/custom/icon.icns",
+        },
+        dmg: {
+          sign: true,
+        },
+        win: {
+          ...base.win,
+          icon: "resources/icons/custom/icon.ico",
+          target: ["nsis"],
+        },
+        nsis: {
+          oneClick: true,
+          perMachine: false,
+          installerIcon: "resources/icons/custom/icon.ico",
+          installerHeaderIcon: "resources/icons/custom/icon.ico",
+        },
+        linux: {
+          ...base.linux,
+          icon: "resources/icons/custom",
+        },
       }
     }
   }

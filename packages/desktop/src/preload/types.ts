@@ -83,6 +83,13 @@ export type ElectronAPI = {
   openPath: (path: string, app?: string) => Promise<void>
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
   showNotification: (title: string, body?: string) => void
+  setDockBadge: (count: number) => Promise<void>
+  getDockBadge: () => Promise<string>
+  getLoginItemSettings: () => Promise<Electron.LoginItemSettings>
+  setLoginItemSettings: (settings: Electron.LoginItemSettingsOptions) => Promise<void>
+  startPowerSave: () => Promise<void>
+  stopPowerSave: () => Promise<void>
+  onTouchbarCommand: (cb: (command: string) => void) => () => void
   getWindowFocused: () => Promise<boolean>
   setWindowFocus: () => Promise<void>
   showWindow: () => Promise<void>

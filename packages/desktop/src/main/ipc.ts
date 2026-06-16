@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { basename } from "node:path"
-import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 
@@ -186,6 +186,40 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.on("show-notification", (_event: IpcMainEvent, title: string, body?: string) => {
     new Notification({ title, body }).show()
+  })
+
+  ipcMain.handle("set-dock-badge", (_event: IpcMainInvokeEvent, count: number) => {
+    if (process.platform === "darwin" && app.dock) {
+      app.dock.setBadge(count > 0 ? String(count) : "")
+    }
+  })
+
+  ipcMain.handle("get-dock-badge", () => {
+    if (process.platform === "darwin" && app.dock) {
+      return app.dock.getBadge()
+    }
+    return ""
+  })
+
+  ipcMain.handle("get-login-item-settings", () => {
+    return app.getLoginItemSettings()
+  })
+
+  ipcMain.handle("set-login-item-settings", (_event: IpcMainInvokeEvent, settings: any) => {
+    app.setLoginItemSettings(settings)
+  })
+
+  let powerSaveBlockerId: number | null = null
+
+  ipcMain.handle("start-power-save", () => {
+    if (powerSaveBlockerId !== null) return
+    powerSaveBlockerId = powerSaveBlocker.start("prevent-app-suspension")
+  })
+
+  ipcMain.handle("stop-power-save", () => {
+    if (powerSaveBlockerId === null) return
+    powerSaveBlocker.stop(powerSaveBlockerId)
+    powerSaveBlockerId = null
   })
 
   ipcMain.handle("get-window-count", () => BrowserWindow.getAllWindows().length)
