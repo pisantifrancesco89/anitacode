@@ -1,10 +1,10 @@
 import { $ } from "bun"
 
-export type Channel = "dev" | "beta" | "prod"
+export type Channel = "dev" | "beta" | "prod" | "custom"
 
 export function resolveChannel(): Channel {
   const raw = Bun.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "custom") return raw
   return "dev"
 }
 
