@@ -33,3 +33,34 @@ export interface AgentNode {
   color: string
   children: AgentNode[]
 }
+
+// Canvas state types
+export interface AgentPosition {
+  name: string
+  x: number
+  y: number
+}
+
+export interface AgentConnection {
+  id: string
+  from: string
+  to: string
+  label?: string
+}
+
+export interface AgentTeam {
+  id: string
+  name: string
+  agentNames: string[]
+  color: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface AgentCanvasState {
+  positions: AgentPosition[]
+  connections: AgentConnection[]
+  teams: AgentTeam[]
+}

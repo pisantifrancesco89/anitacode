@@ -1,20 +1,30 @@
 import { createSignal, For, Show, createMemo } from "solid-js"
-import type { AgentForm, AgentNode } from "./types"
+import { createStore } from "solid-js/store"
+import type { AgentForm, AgentNode, AgentCanvasState } from "./types"
 import { AgentEditor } from "./agent-editor"
-import { AgentTreeView } from "./agent-tree"
+import { AgentCanvas } from "./agent-canvas"
 import { useServerSync } from "@/context/server-sync"
 
 const BUILTIN_AGENTS = ["plan", "build", "general", "explore", "scout", "title", "summary", "compaction"]
 
+function defaultCanvasState(): AgentCanvasState {
+  return { positions: [], connections: [], teams: [] }
+}
+
 export default function AgentsPage() {
   const sync = useServerSync()
-  const [viewMode, setViewMode] = createSignal<"tree" | "editor">("tree")
+  const [viewMode, setViewMode] = createSignal<"canvas" | "editor">("canvas")
   const [selectedAgent, setSelectedAgent] = createSignal<string>("")
   const [editingAgent, setEditingAgent] = createSignal<AgentForm | undefined>()
   const [saving, setSaving] = createSignal(false)
 
   const config = createMemo(() => sync().data.config)
   const providerList = createMemo(() => sync().data.provider)
+
+  // Canvas state (persisted in config)
+  const [canvasState, setCanvasState] = createSignal<AgentCanvasState>(
+    (config() as any)?.agent_canvas ?? defaultCanvasState(),
+  )
 
   const agentList = createMemo(() => {
     const agents = config()?.agent ?? {}
@@ -56,10 +66,21 @@ export default function AgentsPage() {
     return root
   })
 
+  const handleCanvasStateChange = async (state: AgentCanvasState) => {
+    setCanvasState(state)
+    // Persist to config
+    const currentConfig = config() ?? {}
+    await sync().updateConfig({ ...currentConfig, agent_canvas: state } as any)
+  }
+
   const handleNodeSelect = (name: string) => {
+    if (name === "__new__") {
+      handleNewAgent()
+      return
+    }
     setSelectedAgent(name)
     const cfg = config()?.agent
-    const agentCfg = cfg ? cfg[name] : undefined
+    const agentCfg = cfg ? (cfg as any)[name] : undefined
     if (agentCfg) {
       const perm = (agentCfg.permission && typeof agentCfg.permission === "object" ? agentCfg.permission : {}) as Record<string, string>
       setEditingAgent({
@@ -85,6 +106,10 @@ export default function AgentsPage() {
       })
       setViewMode("editor")
     }
+  }
+
+  const handleNodeEdit = (name: string) => {
+    handleNodeSelect(name)
   }
 
   const handleSave = async (form: AgentForm) => {
@@ -116,7 +141,7 @@ export default function AgentsPage() {
       await sync().updateConfig({ ...currentConfig, agent: updatedAgent } as any)
     } finally {
       setSaving(false)
-      setViewMode("tree")
+      setViewMode("canvas")
       setEditingAgent(undefined)
     }
   }
@@ -131,9 +156,16 @@ export default function AgentsPage() {
       await sync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
     } finally {
       setSaving(false)
-      setViewMode("tree")
+      setViewMode("canvas")
       setEditingAgent(undefined)
     }
+  }
+
+  const handleDeleteAgent = async (name: string) => {
+    const currentConfig = config() ?? {}
+    const currentAgent = { ...((currentConfig as any).agent ?? {}) }
+    delete currentAgent[name]
+    await sync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
   }
 
   const handleNewAgent = () => {
@@ -143,31 +175,25 @@ export default function AgentsPage() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", "min-height": "100vh" }}>
+    <div style={{ display: "flex", height: "100%", "min-height": "100vh", background: "#0a0a16" }}>
       <aside
         style={{
           width: "240px",
-          "border-right": "1px solid #333",
+          "border-right": "1px solid #222",
           padding: "16px",
           display: "flex",
           "flex-direction": "column",
           gap: "8px",
-          "background-color": "#0d0d1a",
+          background: "#0d0d1a",
         }}
       >
         <h2 style={{ margin: "0 0 8px", "font-size": "16px", color: "#6C5CE7" }}>AnitaCode Agents</h2>
 
         <div style={{ display: "flex", gap: "4px" }}>
-          <button
-            onClick={() => setViewMode("tree")}
-            style={tabStyle(viewMode() === "tree")}
-          >
-            Tree
+          <button onClick={() => setViewMode("canvas")} style={tabStyle(viewMode() === "canvas")}>
+            Canvas
           </button>
-          <button
-            onClick={() => setViewMode("editor")}
-            style={tabStyle(viewMode() === "editor")}
-          >
+          <button onClick={() => setViewMode("editor")} style={tabStyle(viewMode() === "editor")}>
             Editor
           </button>
         </div>
@@ -189,14 +215,7 @@ export default function AgentsPage() {
                   color: selectedAgent() === agent.name ? "#fff" : "#999",
                 }}
               >
-                <div
-                  style={{
-                    width: "8px",
-                    height: "8px",
-                    "border-radius": "50%",
-                    "background-color": agent.color,
-                  }}
-                />
+                <div style={{ width: "8px", height: "8px", "border-radius": "50%", "background-color": agent.color }} />
                 <span style={{ flex: 1 }}>{agent.name}</span>
                 <span style={{ "font-size": "10px", color: "#666" }}>{agent.mode}</span>
               </div>
@@ -225,20 +244,27 @@ export default function AgentsPage() {
         </button>
       </aside>
 
-      <main style={{ flex: 1, overflow: "auto" }}>
-        <Show when={viewMode() === "tree" && !editingAgent()}>
-          <div style={{ padding: "24px" }}>
-            <AgentTreeView tree={treeData()} onSelect={handleNodeSelect} />
-          </div>
+      <main style={{ flex: 1, overflow: "hidden" }}>
+        <Show when={viewMode() === "canvas"}>
+          <AgentCanvas
+            agents={agentList()}
+            canvasState={canvasState()}
+            onCanvasStateChange={handleCanvasStateChange}
+            onSelect={handleNodeSelect}
+            onEdit={handleNodeEdit}
+            onDelete={handleDeleteAgent}
+          />
         </Show>
 
         <Show when={viewMode() === "editor"}>
-          <AgentEditor
-            initial={editingAgent()}
-            models={models()}
-            onSave={handleSave}
-            onDelete={editingAgent() ? handleDelete : undefined}
-          />
+          <div style={{ overflow: "auto", height: "100%" }}>
+            <AgentEditor
+              initial={editingAgent()}
+              models={models()}
+              onSave={handleSave}
+              onDelete={editingAgent() ? handleDelete : undefined}
+            />
+          </div>
         </Show>
       </main>
     </div>

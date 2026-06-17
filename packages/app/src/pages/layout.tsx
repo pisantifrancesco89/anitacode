@@ -990,6 +990,19 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  const openTasks = () => {
+    if (params.id) {
+      const sessionKey = SessionStateKey.from(server.scope(), SessionRouteKey.fromRoute(params.dir, params.id))
+      const tabs = layout.tabs(sessionKey)
+      void tabs.open("tasks")
+      tabs.setActive("tasks")
+      const view = layout.view(sessionKey)
+      if (!view.reviewPanel.opened()) view.reviewPanel.open()
+    } else {
+      navigate("/kanban")
+    }
+  }
+
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
@@ -1060,10 +1073,10 @@ export default function Layout(props: ParentProps) {
       },
       {
         id: "kanban.open",
-        title: "Kanban Board",
+        title: "Tasks",
         category: "AnitaCode",
-        keybind: "mod+shift+k",
-        onSelect: () => navigate("/kanban"),
+        keybind: "mod+shift+t",
+        onSelect: openTasks,
       },
       {
         id: "session.previous",
@@ -2365,9 +2378,9 @@ export default function Layout(props: ParentProps) {
       agentsLabel={() => "Agent Builder"}
       agentsKeybind={() => command.keybind("agents.open")}
       onOpenAgents={() => navigate("/agents")}
-      kanbanLabel={() => "Kanban Board"}
+      kanbanLabel={() => "Tasks"}
       kanbanKeybind={() => command.keybind("kanban.open")}
-      onOpenKanban={() => navigate("/kanban")}
+      onOpenKanban={openTasks}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }

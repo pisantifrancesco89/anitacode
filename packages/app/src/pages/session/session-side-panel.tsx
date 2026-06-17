@@ -32,6 +32,7 @@ import {
 } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { TasksTab } from "@/pages/session/tasks-tab"
 
 type RenderDiff = (SnapshotFileDiff & { file: string }) | VcsFileDiff
 
@@ -299,6 +300,36 @@ export function SessionSidePanel(props: {
                             </div>
                           </Tabs.Trigger>
                         </Show>
+                        <Show when={params.id}>
+                          <Tabs.Trigger
+                            value="tasks"
+                            closeButton={
+                              <TooltipKeybind
+                                title={language.t("common.closeTab")}
+                                keybind={command.keybind("tab.close")}
+                                placement="bottom"
+                                gutter={10}
+                              >
+                                <IconButton
+                                  icon="close-small"
+                                  variant="ghost"
+                                  class="h-5 w-5"
+                                  onClick={() => tabs().close("tasks")}
+                                  aria-label={language.t("common.closeTab")}
+                                />
+                              </TooltipKeybind>
+                            }
+                            hideCloseButton
+                            onMiddleClick={() => tabs().close("tasks")}
+                          >
+                            <div class="flex items-center gap-2">
+                              <svg class="size-3.5 text-icon-base" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                              <div>Tasks</div>
+                            </div>
+                          </Tabs.Trigger>
+                        </Show>
                         <SortableProvider ids={openedTabs()}>
                           <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                         </SortableProvider>
@@ -349,6 +380,16 @@ export function SessionSidePanel(props: {
                         <Show when={activeTab() === "context"}>
                           <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                             <SessionContextTab />
+                          </div>
+                        </Show>
+                      </Tabs.Content>
+                    </Show>
+
+                    <Show when={params.id}>
+                      <Tabs.Content value="tasks" class="flex flex-col h-full overflow-hidden contain-strict">
+                        <Show when={activeTab() === "tasks"}>
+                          <div class="relative flex-1 min-h-0 overflow-hidden">
+                            <TasksTab />
                           </div>
                         </Show>
                       </Tabs.Content>

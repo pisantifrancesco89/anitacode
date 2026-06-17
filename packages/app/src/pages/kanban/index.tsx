@@ -1,9 +1,28 @@
-import { createSignal, For, Show, createMemo } from "solid-js"
+import { createSignal, For, Show, createMemo, createEffect } from "solid-js"
 import type { Task, TaskStatus, TaskPriority } from "./types"
 import { COLUMNS } from "./types"
 import { KanbanColumn } from "./kanban-column"
 import { TaskDetail } from "./task-detail"
 import { useServerSync } from "@/context/server-sync"
+
+const STORAGE_KEY = "anitacode.kanban.tasks"
+
+function loadLocalTasks(): Task[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveLocalTasks(tasks: Task[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 const AGENTS = [
   "all", "orchestrator", "planner", "builder", "reviewer", "documenter",
@@ -12,8 +31,6 @@ const AGENTS = [
 ]
 
 const PRIORITIES: Array<TaskPriority | "all"> = ["all", "high", "medium", "low"]
-
-let idCounter = 1000
 
 function taskFromTodo(sessionId: string, todo: { content: string; status: string; priority: string }, idx: number): Task {
   return {
@@ -45,10 +62,13 @@ export default function KanbanPage() {
   const [selectedTask, setSelectedTask] = createSignal<Task | null>(null)
   const [agentFilter, setAgentFilter] = createSignal("all")
   const [priorityFilter, setPriorityFilter] = createSignal<"all" | TaskPriority>("all")
-  const [localTasks, setLocalTasks] = createSignal<Task[]>([])
+  const [localTasks, setLocalTasks] = createSignal<Task[]>(loadLocalTasks())
+
+  // Persist local tasks to localStorage
+  createEffect(() => saveLocalTasks(localTasks()))
 
   const sessionTodos = createMemo(() => {
-    const store = (sync().data as any)?.session_todo
+    const store = sync().data.session_todo
     if (!store) return []
     const tasks: Task[] = []
     for (const [sessionId, todos] of Object.entries(store)) {
@@ -103,7 +123,7 @@ export default function KanbanPage() {
 
   const handleAddTask = () => {
     const newTask: Task = {
-      id: `task-local-${++idCounter}`,
+      id: `task-local-${Date.now()}`,
       title: "New Task",
       description: "",
       status: "todo",
@@ -118,7 +138,7 @@ export default function KanbanPage() {
   }
 
   const todosLoading = createMemo(() => {
-    return !(sync().data as any)?.session_todo
+    return !sync().data.session_todo
   })
 
   return (
