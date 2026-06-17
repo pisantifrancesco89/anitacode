@@ -507,12 +507,20 @@ export function AgentCanvas(props: {
             {(team) => {
               const memberNames = getTeamAgentNames(team.id)
               const isEditing = editingTeam()?.id === team.id
+              // Get agent colors for member dots
+              const memberColors = createMemo(() =>
+                memberNames.map((name) => {
+                  const agent = props.agents.find((a) => a.name === name)
+                  return agent?.color ?? "#666"
+                })
+              )
               return (
                 <g
                   data-team={team.id}
                   style={{ cursor: "pointer" }}
                   onClick={() => handleTeamClick(team)}
                 >
+                  {/* Team background */}
                   <rect
                     x={team.x}
                     y={team.y}
@@ -520,44 +528,114 @@ export function AgentCanvas(props: {
                     height={team.height}
                     rx={12}
                     fill={team.color}
-                    fill-opacity={isEditing ? 0.15 : 0.08}
+                    fill-opacity={isEditing ? 0.12 : 0.06}
                     stroke={team.color}
                     stroke-width={isEditing ? 2.5 : 1.5}
-                    stroke-dasharray="8 4"
-                    stroke-opacity={isEditing ? 0.6 : 0.3}
+                    stroke-dasharray={isEditing ? "none" : "8 4"}
+                    stroke-opacity={isEditing ? 0.8 : 0.3}
                   />
+                  {/* Header bar */}
+                  <rect
+                    x={team.x}
+                    y={team.y}
+                    width={team.width}
+                    height={28}
+                    rx={12}
+                    fill={team.color}
+                    fill-opacity={0.15}
+                  />
+                  <rect
+                    x={team.x}
+                    y={team.y + 16}
+                    width={team.width}
+                    height={12}
+                    fill={team.color}
+                    fill-opacity={0.15}
+                  />
+                  {/* Team name */}
                   <text
                     x={team.x + 12}
-                    y={team.y + 20}
+                    y={team.y + 19}
                     fill={team.color}
-                    font-size="13"
-                    font-weight="600"
-                    opacity={0.8}
+                    font-size="12"
+                    font-weight="700"
                   >
                     {team.name}
                   </text>
-                  {/* Show member count */}
+                  {/* Member count badge */}
+                  <rect
+                    x={team.x + team.width - 50}
+                    y={team.y + 6}
+                    width={38}
+                    height={16}
+                    rx={8}
+                    fill={team.color}
+                    fill-opacity={0.25}
+                  />
                   <text
-                    x={team.x + team.width - 12}
-                    y={team.y + 20}
+                    x={team.x + team.width - 31}
+                    y={team.y + 17}
                     fill={team.color}
                     font-size="10"
-                    text-anchor="end"
-                    opacity={0.6}
+                    text-anchor="middle"
+                    font-weight="600"
                   >
-                    {memberNames.length} agent{memberNames.length !== 1 ? "s" : ""}
+                    {memberNames.length}
                   </text>
-                  {/* Show agent names inside team */}
+                  {/* Member agent dots */}
                   <Show when={memberNames.length > 0}>
+                    <For each={memberNames.slice(0, 8)}>
+                      {(name, i) => {
+                        const dotX = team.x + 16 + (i() % 4) * 24
+                        const dotY = team.y + 40 + Math.floor(i() / 4) * 24
+                        const color = memberColors()[i()]
+                        return (
+                          <g>
+                            <circle cx={dotX} cy={dotY} r={8} fill={color} opacity={0.8} />
+                            <text
+                              x={dotX}
+                              y={dotY + 3}
+                              fill="white"
+                              font-size="8"
+                              text-anchor="middle"
+                              font-weight="600"
+                              style={{ "pointer-events": "none" }}
+                            >
+                              {name.charAt(0).toUpperCase()}
+                            </text>
+                          </g>
+                        )
+                      }}
+                    </For>
+                    <Show when={memberNames.length > 8}>
+                      <text
+                        x={team.x + 16 + (8 % 4) * 24}
+                        y={team.y + 40 + Math.floor(8 / 4) * 24 + 3}
+                        fill="rgba(255,255,255,0.5)"
+                        font-size="9"
+                        text-anchor="middle"
+                      >
+                        +{memberNames.length - 8}
+                      </text>
+                    </Show>
+                  </Show>
+                  {/* Empty state */}
+                  <Show when={memberNames.length === 0}>
                     <text
-                      x={team.x + 12}
-                      y={team.y + 36}
-                      fill="rgba(255,255,255,0.4)"
-                      font-size="9"
+                      x={team.x + team.width / 2}
+                      y={team.y + team.height / 2 + 4}
+                      fill="rgba(255,255,255,0.25)"
+                      font-size="10"
+                      text-anchor="middle"
                     >
-                      {memberNames.slice(0, 4).join(", ")}
-                      {memberNames.length > 4 ? ` +${memberNames.length - 4} more` : ""}
+                      Empty team — drag agents here
                     </text>
+                  </Show>
+                  {/* Resize handles (visible when editing) */}
+                  <Show when={isEditing}>
+                    <circle cx={team.x + team.width} cy={team.y + team.height} r={5} fill={team.color} opacity={0.6} style={{ cursor: "nwse-resize" }} />
+                    <circle cx={team.x + team.width} cy={team.y} r={5} fill={team.color} opacity={0.4} style={{ cursor: "nesw-resize" }} />
+                    <circle cx={team.x} cy={team.y + team.height} r={5} fill={team.color} opacity={0.4} style={{ cursor: "nesw-resize" }} />
                   </Show>
                 </g>
               )
@@ -849,22 +927,35 @@ export function AgentCanvas(props: {
 
           {/* Team members */}
           <div>
-            <span style={{ "font-size": "12px", color: "#999" }}>Members</span>
-            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px", "margin-top": "4px" }}>
+            <span style={{ "font-size": "12px", color: "#999" }}>Members ({getTeamAgentNames(editingTeam()?.id ?? "").length})</span>
+            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }}>
               <For each={getTeamAgentNames(editingTeam()?.id ?? "")}>
-                {(memberName) => (
-                  <span style={{
-                    padding: "2px 8px", "border-radius": "4px", "font-size": "11px",
-                    background: (editingTeam()?.color ?? "#6C5CE7") + "22",
-                    color: "#ccc", border: "1px solid " + (editingTeam()?.color ?? "#6C5CE7") + "44",
-                  }}>
-                    {memberName}
-                  </span>
-                )}
+                {(memberName) => {
+                  const agentColor = props.agents.find((a) => a.name === memberName)?.color ?? "#666"
+                  return (
+                    <div style={{
+                      display: "flex",
+                      "align-items": "center",
+                      gap: "6px",
+                      padding: "4px 10px",
+                      "border-radius": "6px",
+                      background: agentColor + "18",
+                      border: "1px solid " + agentColor + "44",
+                    }}>
+                      <div style={{
+                        width: "8px",
+                        height: "8px",
+                        "border-radius": "50%",
+                        background: agentColor,
+                      }} />
+                      <span style={{ "font-size": "12px", color: "#ddd" }}>{memberName}</span>
+                    </div>
+                  )
+                }}
               </For>
               <Show when={getTeamAgentNames(editingTeam()?.id ?? "").length === 0}>
-                <span style={{ "font-size": "11px", color: "#666" }}>
-                  No agents in this team. Right-click an agent → "→ Team Name" to add it.
+                <span style={{ "font-size": "11px", color: "#666", padding: "8px" }}>
+                  No agents in this team. Right-click an agent and select "→ Team Name" to add it.
                 </span>
               </Show>
             </div>

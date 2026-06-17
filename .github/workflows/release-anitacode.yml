@@ -69,8 +69,7 @@ jobs:
           OPENCODE_CHANNEL: custom
 
       - name: Package macOS
-        run: npx electron-builder --mac --publish never --config electron-builder.config.ts
-        working-directory: packages/desktop
+        run: bun run --cwd packages/desktop package:mac -- --publish never
         env:
           OPENCODE_CHANNEL: custom
 
