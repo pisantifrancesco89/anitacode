@@ -345,6 +345,18 @@ export const SettingsGeneralV2: Component = () => {
             />
           </div>
         </SettingsRowV2>
+
+        <SettingsRowV2
+          title="Show channel badge"
+          description="Show DEV/BETA badge in the titlebar when using development/pre-release channels"
+        >
+          <div data-action="settings-show-channel-badge">
+            <Switch
+              checked={settings.general.showChannelBadge()}
+              onChange={(checked) => settings.general.setShowChannelBadge(checked)}
+            />
+          </div>
+        </SettingsRowV2>
       </SettingsListV2>
     </div>
   )
