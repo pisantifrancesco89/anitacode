@@ -1,0 +1,99 @@
+name: release-anitacode
+run-name: "AnitaCode ${{ inputs.bump || 'patch' }}"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/desktop/package.json"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump major, minor, or patch"
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    if: github.repository == 'pisantifrancesco89/anitacode'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Get or bump version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.bump }}" ]]; then
+            CURRENT=$(cat packages/desktop/package.json | bun -e "const j = JSON.parse(await Bun.stdin.text()); console.log(j.version)")
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "${{ inputs.bump }}" in
+              major) NEW="$((MAJOR + 1)).0.0" ;;
+              minor) NEW="$MAJOR.$((MINOR + 1)).0" ;;
+              *)     NEW="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+            esac
+            echo "Bumping $CURRENT -> $NEW"
+            bun -e "const p = JSON.parse(await Bun.file('packages/desktop/package.json').text()); p.version = '$NEW'; await Bun.write('packages/desktop/package.json', JSON.stringify(p, null, 2) + '\n')"
+            echo "version=$NEW" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(cat packages/desktop/package.json | bun -e "const j = JSON.parse(await Bun.stdin.text()); console.log(j.version)")
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build desktop (custom channel)
+        run: |
+          bun run --cwd packages/desktop prebuild
+          bun run --cwd packages/desktop build
+        env:
+          OPENCODE_CHANNEL: custom
+
+      - name: Package macOS
+        run: bun run --cwd packages/desktop package:mac
+        env:
+          OPENCODE_CHANNEL: custom
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --target "${{ github.sha }}" \
+            --repo "${{ github.repository }}" \
+            --notes "AnitaCode $TAG" || true
+
+      - name: Upload macOS artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          cd packages/desktop/dist
+          for f in *.dmg *.zip *.blockmap *.yml; do
+            [ -f "$f" ] && gh release upload "$TAG" "$f" --clobber --repo "${{ github.repository }}" && echo "Uploaded $f"
+          done

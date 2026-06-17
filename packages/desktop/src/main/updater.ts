@@ -1,4 +1,4 @@
-import { app, dialog } from "electron"
+import { app, dialog, Notification } from "electron"
 import pkg from "electron-updater"
 import { UPDATER_ENABLED } from "./constants"
 import { createUpdaterController, type UpdaterReadyRecord } from "./updater-controller"
@@ -24,7 +24,7 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
   })
 
   const store = getStore("opencode.updater")
-  return createUpdaterController({
+  const controller = createUpdaterController({
     enabled: UPDATER_ENABLED,
     currentVersion: app.getVersion(),
     backend: autoUpdater,
@@ -40,6 +40,35 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
     stop,
     log: (message, data) => logger.log(message, data),
   })
+
+  // Show a native notification when an update is ready to install
+  controller.subscribe((state) => {
+    if (state.status !== "ready") return
+    const appName = app.getName()
+    const notification = new Notification({
+      title: `${appName} Update Available`,
+      body: `Version ${state.version} is ready to install. Click to restart and update.`,
+    })
+    notification.on("click", () => {
+      void controller.install()
+    })
+    notification.show()
+    logger.log("update notification shown", { version: state.version })
+  })
+
+  // Auto-install when the user quits the app (no manual step needed)
+  let installing = false
+  app.on("before-quit", (event) => {
+    if (installing) return
+    const state = controller.getState()
+    if (state.status !== "ready") return
+    installing = true
+    event.preventDefault()
+    logger.log("auto-installing update on quit", { version: state.version })
+    controller.install().catch(() => app.quit())
+  })
+
+  return controller
 }
 
 export async function showUpdaterDialog(controller: ReturnType<typeof setupAutoUpdater>, alertOnFail: boolean) {
