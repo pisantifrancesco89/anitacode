@@ -46,12 +46,39 @@ export default function AgentsPage() {
 
   const models = createMemo(() => {
     const all = providerList()?.all
+    const connected = providerList()?.connected ?? []
     if (!all) return []
-    const result: Array<{ id: string; providerId: string; name: string }> = []
+    const result: Array<{
+      id: string
+      providerId: string
+      name: string
+      free: boolean
+      costInput: number
+      costOutput: number
+      status: string
+    }> = []
     for (const [pid, provider] of all) {
       if (!provider.models) continue
+      const isConnected = connected.includes(pid)
       for (const [mid, model] of Object.entries(provider.models)) {
-        result.push({ id: `${pid}/${mid}`, providerId: pid, name: typeof model === "object" ? (model as any).name ?? mid : mid })
+        const m = model as any
+        const costInput = m.cost?.input ?? 0
+        const costOutput = m.cost?.output ?? 0
+        const isFree = costInput === 0 && costOutput === 0
+        const status = m.status ?? "active"
+
+        // Filter: show only free models + models from connected providers
+        if (!isFree && !isConnected) continue
+
+        result.push({
+          id: `${pid}/${mid}`,
+          providerId: pid,
+          name: m.name ?? mid,
+          free: isFree,
+          costInput,
+          costOutput,
+          status,
+        })
       }
     }
     return result

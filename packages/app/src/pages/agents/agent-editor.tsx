@@ -34,14 +34,25 @@ function getPerm(form: AgentForm, key: string): string {
   return form.permission[key as keyof typeof form.permission] ?? "ask"
 }
 
+export type ModelOption = {
+  id: string
+  providerId: string
+  name: string
+  free: boolean
+  costInput: number
+  costOutput: number
+  status: string
+}
+
 export function AgentEditor(props: {
   initial?: AgentForm
-  models?: Array<{ id: string; providerId: string; name: string }>
+  models?: ModelOption[]
   onSave: (form: AgentForm) => void
   onDelete?: () => void
 }) {
   const [form, setForm] = createSignal<AgentForm>(props.initial || defaultForm())
   const [showTools, setShowTools] = createSignal(false)
+  const [showFreeOnly, setShowFreeOnly] = createSignal(true)
 
   // Reset form when a different agent is selected (track by agent name)
   let lastAgentName: string | undefined
@@ -72,12 +83,16 @@ export function AgentEditor(props: {
     })
   }
 
-  const modelOptions = () => props.models ?? []
+  // Separate free and paid models
+  const freeModels = () => (props.models ?? []).filter((m) => m.free)
+  const paidModels = () => (props.models ?? []).filter((m) => !m.free)
+
+  const modelOptions = () => showFreeOnly() ? freeModels() : (props.models ?? [])
   const modelGroups = () => {
-    const groups: Record<string, Array<{ id: string; name: string }>> = {}
+    const groups: Record<string, Array<{ id: string; name: string; free: boolean }>> = {}
     for (const m of modelOptions()) {
       if (!groups[m.providerId]) groups[m.providerId] = []
-      groups[m.providerId].push({ id: m.id, name: m.name })
+      groups[m.providerId].push({ id: m.id, name: m.name, free: m.free })
     }
     return groups
   }
@@ -125,8 +140,27 @@ export function AgentEditor(props: {
           </select>
         </label>
 
-        <label style="flex: 1">
-          Model
+        <label style={{ flex: 1 }}>
+          <div style={{ display: "flex", "align-items": "center", gap: "6px", "margin-bottom": "4px" }}>
+            <span>Model</span>
+            <button
+              onClick={() => setShowFreeOnly((v) => !v)}
+              style={{
+                padding: "2px 8px",
+                "border-radius": "4px",
+                border: "1px solid",
+                "border-color": showFreeOnly() ? "#00B894" : "#444",
+                background: showFreeOnly() ? "rgba(0,184,148,0.15)" : "transparent",
+                color: showFreeOnly() ? "#00B894" : "#888",
+                cursor: "pointer",
+                "font-size": "10px",
+                "font-weight": 600,
+              }}
+              title={showFreeOnly() ? "Showing free models only. Click to show all." : "Show free models only"}
+            >
+              {showFreeOnly() ? `Free (${freeModels().length})` : `All (${(props.models ?? []).length})`}
+            </button>
+          </div>
           <Show when={modelOptions().length > 0} fallback={
             <input
               type="text"
@@ -139,14 +173,18 @@ export function AgentEditor(props: {
             <select
               value={form().model}
               onInput={(e) => updateField("model", e.currentTarget.value)}
-              style={selectStyle()}
+              style={{ ...selectStyle(), "font-size": "12px" }}
             >
               <option value="">(default)</option>
               <For each={Object.entries(modelGroups())}>
                 {([provider, models]) => (
                   <optgroup label={provider}>
                     <For each={models}>
-                      {(model) => <option value={model.id}>{model.name}</option>}
+                      {(model) => (
+                        <option value={model.id}>
+                          {model.name}{model.free ? " (free)" : ""}
+                        </option>
+                      )}
                     </For>
                   </optgroup>
                 )}
