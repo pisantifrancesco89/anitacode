@@ -151,25 +151,25 @@ function getConfig() {
         publish: { provider: "github", owner: "pisantifrancesco89", repo: "anitacode", channel: "latest" },
         mac: {
           ...base.mac,
-          icon: "resources/icons/custom/icon.icns",
+          icon: "resources/icons/icon.icns",
         },
         dmg: {
           sign: false,
         },
         win: {
           ...base.win,
-          icon: "resources/icons/custom/icon.ico",
+          icon: "resources/icons/icon.ico",
           target: ["nsis"],
         },
         nsis: {
           oneClick: true,
           perMachine: false,
-          installerIcon: "resources/icons/custom/icon.ico",
-          installerHeaderIcon: "resources/icons/custom/icon.ico",
+          installerIcon: "resources/icons/icon.ico",
+          installerHeaderIcon: "resources/icons/icon.ico",
         },
         linux: {
           ...base.linux,
-          icon: "resources/icons/custom",
+          icon: "resources/icons",
         },
       }
     }
