@@ -14,15 +14,18 @@
 - ✅ Auto-install on app quit (no manual restart needed)
 - ✅ Release script for custom channel (`bun run release:custom`)
 - ✅ GitHub Actions workflow for automated releases
+- ✅ Fix DEV badge: custom channel now maps to prod in Vite configs
 
 ## Current Status
 - AnitaCode fork with all recent features committed on `dev` branch
 - Auto-update fully implemented: checks on start + every 10 min, notification, auto-install on quit
 - Can build installers with `OPENCODE_CHANNEL=custom`
 - Release automation ready
+- **v1.17.9 building** — fixes DEV badge in packaged app (custom channel now maps to prod in Vite configs)
 
 ## Next Steps
-- Test full release flow: build → publish → auto-update
+- Test v1.17.9: verify DEV badge is gone
+- Test auto-update: v1.17.8 should receive v1.17.9 update notification
 - Sign the app with Apple Developer Certificate for production
 - Add Windows/Linux packaging for cross-platform releases
 

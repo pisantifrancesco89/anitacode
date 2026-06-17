@@ -34,6 +34,7 @@ export interface Settings {
     showSessionProgressBar: boolean
     showCustomAgents: boolean
     newLayoutDesigns?: boolean
+    showChannelBadge?: boolean
   }
   appearance: {
     fontSize: number
@@ -118,6 +119,7 @@ const defaultSettings: Settings = {
     editToolPartsExpanded: false,
     showSessionProgressBar: true,
     showCustomAgents: false,
+    showChannelBadge: false,
   },
   appearance: {
     fontSize: 14,
@@ -251,6 +253,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         newLayoutDesigns,
         setNewLayoutDesigns(value: boolean) {
           setStore("general", "newLayoutDesigns", value)
+        },
+        showChannelBadge: withFallback(
+          () => store.general?.showChannelBadge,
+          defaultSettings.general.showChannelBadge,
+        ),
+        setShowChannelBadge(value: boolean) {
+          setStore("general", "showChannelBadge", value)
         },
       },
       visibility: {

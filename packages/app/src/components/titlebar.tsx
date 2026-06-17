@@ -986,11 +986,14 @@ function NewSessionTabItem(props: { ref?: HTMLDivElement; href: string; title: s
 }
 
 function ChannelIndicator() {
+  const settings = useSettings()
+  const channel = import.meta.env.VITE_OPENCODE_CHANNEL
+  const show = createMemo(() => settings.general.showChannelBadge() && ["beta", "dev"].includes(channel))
   return (
     <>
-      {["beta", "dev"].includes(import.meta.env.VITE_OPENCODE_CHANNEL) && (
+      {show() && (
         <div class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono">
-          {import.meta.env.VITE_OPENCODE_CHANNEL.toUpperCase()}
+          {channel.toUpperCase()}
         </div>
       )}
     </>
