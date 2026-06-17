@@ -1,4 +1,4 @@
-import { createSignal, createMemo, For, Show, onMount, onCleanup, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { AgentNode, AgentCanvasState, AgentPosition, AgentConnection, AgentTeam } from "./types"
@@ -123,6 +123,50 @@ export function AgentCanvas(props: {
     }
   }
 
+  // Check if an agent is inside a team's bounding box
+  const isAgentInTeam = (agentName: string, team: AgentTeam) => {
+    const pos = getPosition(agentName)
+    return (
+      pos.x >= team.x &&
+      pos.x <= team.x + team.width &&
+      pos.y >= team.y &&
+      pos.y <= team.y + team.height
+    )
+  }
+
+  // Auto-assign agents to teams based on position
+  const computeAgentTeams = () => {
+    const assignments: Record<string, string[]> = {}
+    for (const team of store.teams) {
+      for (const agentName of allAgentNames()) {
+        if (isAgentInTeam(agentName, team)) {
+          if (!assignments[team.id]) assignments[team.id] = []
+          assignments[team.id].push(agentName)
+        }
+      }
+    }
+    return assignments
+  }
+
+  // Get agents that belong to a team (position-based + explicit assignment)
+  const getTeamAgentNames = (teamId: string): string[] => {
+    const team = store.teams.find((t) => t.id === teamId)
+    if (!team) return []
+    const positional = allAgentNames().filter((name) => isAgentInTeam(name, team))
+    const explicit = team.agentNames ?? []
+    return [...new Set([...positional, ...explicit])]
+  }
+
+  // Sync positions → agentNames for all teams
+  const syncTeamAgentNames = () => {
+    for (const team of store.teams) {
+      const members = allAgentNames().filter((name) => isAgentInTeam(name, team))
+      if (team.agentNames.length !== members.length || !members.every((m) => team.agentNames.includes(m))) {
+        setStore("teams", (t) => t.id === team.id, { agentNames: members })
+      }
+    }
+  }
+
   // Emit state changes
   const emitChange = () => {
     props.onCanvasStateChange({
@@ -186,6 +230,58 @@ export function AgentCanvas(props: {
     setContextMenu(null)
   }
 
+  // --- TEAM EDITING ---
+  const [editingTeam, setEditingTeam] = createSignal<AgentTeam | null>(null)
+  const [teamDraft, setTeamDraft] = createSignal<{ name: string; color: string }>({ name: "", color: "#6C5CE7" })
+
+  const handleTeamClick = (team: AgentTeam) => {
+    setEditingTeam(team)
+    setTeamDraft({ name: team.name, color: team.color })
+  }
+
+  const handleTeamDraftChange = (field: "name" | "color", value: string) => {
+    setTeamDraft((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const saveTeamChanges = () => {
+    const t = editingTeam()
+    if (!t) return
+    const draft = teamDraft()
+    setStore("teams", (team) => team.id === t.id, {
+      name: draft.name,
+      color: draft.color,
+      agentNames: getTeamAgentNames(t.id),
+    })
+    setEditingTeam(null)
+    emitChange()
+  }
+
+  const deleteTeam = (teamId: string) => {
+    setStore("teams", produce((draft) => {
+      const idx = draft.findIndex((t) => t.id === teamId)
+      if (idx !== -1) draft.splice(idx, 1)
+    }))
+    setEditingTeam(null)
+    setContextMenu(null)
+    emitChange()
+  }
+
+  const closeTeamEditor = () => {
+    setEditingTeam(null)
+  }
+
+  // Add agents to team based on position
+  const addAgentToTeam = (agentName: string, teamId: string) => {
+    const team = store.teams.find((t) => t.id === teamId)
+    if (!team) return
+    if (!team.agentNames.includes(agentName)) {
+      setStore("teams", (t) => t.id === teamId, produce((draft) => {
+        draft.agentNames.push(agentName)
+      }))
+      emitChange()
+    }
+  }
+
   // --- CONNECTION DRAWING ---
   const handlePortClick = (e: MouseEvent, agentName: string) => {
     e.stopPropagation()
@@ -237,6 +333,7 @@ export function AgentCanvas(props: {
   const handlePointerUp = () => {
     const d = drag()
     if (d && d.type === "node") {
+      syncTeamAgentNames()
       emitChange()
     }
     setDrag(null)
@@ -253,6 +350,9 @@ export function AgentCanvas(props: {
     } else if (target.closest("[data-node]")) {
       const nodeName = target.closest("[data-node]")?.getAttribute("data-node")
       setContextMenu({ x: e.clientX, y: e.clientY, type: "node", targetId: nodeName ?? undefined })
+    } else if (target.closest("[data-team]")) {
+      const teamId = target.closest("[data-team]")?.getAttribute("data-team")
+      setContextMenu({ x: e.clientX, y: e.clientY, type: "group", targetId: teamId ?? undefined })
     } else {
       setContextMenu({ x: e.clientX, y: e.clientY, type: "canvas" })
     }
@@ -312,7 +412,10 @@ export function AgentCanvas(props: {
     const cleanup1 = makeEventListener(window, "pointermove", handlePointerMove)
     const cleanup2 = makeEventListener(window, "pointerup", handlePointerUp)
     const cleanup3 = makeEventListener(window, "click", handleClickOutside)
-    onCleanup(() => { cleanup1(); cleanup2(); cleanup3() })
+    const cleanup4 = containerRef
+      ? makeEventListener(containerRef, "wheel", handleWheel, { passive: false })
+      : () => {}
+    onCleanup(() => { cleanup1(); cleanup2(); cleanup3(); cleanup4() })
   })
 
   // Get all agent names
@@ -323,17 +426,55 @@ export function AgentCanvas(props: {
       ref={containerRef}
       class="relative w-full h-full overflow-hidden bg-[#0a0a16] rounded-lg"
       style={{ cursor: drag()?.type === "pan" ? "grabbing" : "grab" }}
-      onWheel={handleWheel}
       onPointerDown={handleCanvasPointerDown}
       onContextMenu={handleContextMenu}
     >
       {/* Zoom Toolbar */}
-      <div class="absolute top-3 right-3 z-20 flex items-center gap-1 bg-[#1a1a2e] border border-[#333] rounded-lg p-1">
-        <button onClick={zoomIn} class="size-8 flex items-center justify-center rounded hover:bg-[#333] text-white text-sm font-bold" title="Zoom in">+</button>
-        <span class="px-2 text-xs text-[#999] min-w-[40px] text-center">{Math.round(zoom() * 100)}%</span>
-        <button onClick={zoomOut} class="size-8 flex items-center justify-center rounded hover:bg-[#333] text-white text-sm font-bold" title="Zoom out">−</button>
-        <div class="w-px h-5 bg-[#333]" />
-        <button onClick={resetView} class="size-8 flex items-center justify-center rounded hover:bg-[#333] text-[#999] text-xs" title="Reset view">⌂</button>
+      <div style={{
+        position: "absolute",
+        top: "12px",
+        right: "12px",
+        "z-index": 100,
+        display: "flex",
+        "align-items": "center",
+        gap: "4px",
+        background: "#1a1a2e",
+        border: "1px solid #333",
+        "border-radius": "8px",
+        padding: "4px",
+        "pointer-events": "auto",
+      }}>
+        <button
+          onClick={zoomIn}
+          style={{
+            width: "32px", height: "32px", display: "flex", "align-items": "center", "justify-content": "center",
+            "border-radius": "6px", border: "none", background: "transparent", color: "#fff",
+            "font-size": "16px", "font-weight": "bold", cursor: "pointer",
+          }}
+          title="Zoom in"
+        >+</button>
+        <span style={{
+          padding: "0 8px", "font-size": "12px", color: "#999", "min-width": "40px", "text-align": "center",
+        }}>{Math.round(zoom() * 100)}%</span>
+        <button
+          onClick={zoomOut}
+          style={{
+            width: "32px", height: "32px", display: "flex", "align-items": "center", "justify-content": "center",
+            "border-radius": "6px", border: "none", background: "transparent", color: "#fff",
+            "font-size": "16px", "font-weight": "bold", cursor: "pointer",
+          }}
+          title="Zoom out"
+        >−</button>
+        <div style={{ width: "1px", height: "20px", background: "#333" }} />
+        <button
+          onClick={resetView}
+          style={{
+            width: "32px", height: "32px", display: "flex", "align-items": "center", "justify-content": "center",
+            "border-radius": "6px", border: "none", background: "transparent", color: "#999",
+            "font-size": "14px", cursor: "pointer",
+          }}
+          title="Reset view"
+        >⌂</button>
       </div>
 
       {/* Connection mode indicator */}
@@ -363,33 +504,64 @@ export function AgentCanvas(props: {
 
           {/* Teams (behind nodes) */}
           <For each={store.teams}>
-            {(team) => (
-              <g>
-                <rect
-                  x={team.x}
-                  y={team.y}
-                  width={team.width}
-                  height={team.height}
-                  rx={12}
-                  fill={team.color}
-                  fill-opacity={0.08}
-                  stroke={team.color}
-                  stroke-width={1.5}
-                  stroke-dasharray="8 4"
-                  stroke-opacity={0.3}
-                />
-                <text
-                  x={team.x + 12}
-                  y={team.y + 20}
-                  fill={team.color}
-                  font-size="12"
-                  font-weight="600"
-                  opacity={0.7}
+            {(team) => {
+              const memberNames = getTeamAgentNames(team.id)
+              const isEditing = editingTeam()?.id === team.id
+              return (
+                <g
+                  data-team={team.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => handleTeamClick(team)}
                 >
-                  {team.name}
-                </text>
-              </g>
-            )}
+                  <rect
+                    x={team.x}
+                    y={team.y}
+                    width={team.width}
+                    height={team.height}
+                    rx={12}
+                    fill={team.color}
+                    fill-opacity={isEditing ? 0.15 : 0.08}
+                    stroke={team.color}
+                    stroke-width={isEditing ? 2.5 : 1.5}
+                    stroke-dasharray="8 4"
+                    stroke-opacity={isEditing ? 0.6 : 0.3}
+                  />
+                  <text
+                    x={team.x + 12}
+                    y={team.y + 20}
+                    fill={team.color}
+                    font-size="13"
+                    font-weight="600"
+                    opacity={0.8}
+                  >
+                    {team.name}
+                  </text>
+                  {/* Show member count */}
+                  <text
+                    x={team.x + team.width - 12}
+                    y={team.y + 20}
+                    fill={team.color}
+                    font-size="10"
+                    text-anchor="end"
+                    opacity={0.6}
+                  >
+                    {memberNames.length} agent{memberNames.length !== 1 ? "s" : ""}
+                  </text>
+                  {/* Show agent names inside team */}
+                  <Show when={memberNames.length > 0}>
+                    <text
+                      x={team.x + 12}
+                      y={team.y + 36}
+                      fill="rgba(255,255,255,0.4)"
+                      font-size="9"
+                    >
+                      {memberNames.slice(0, 4).join(", ")}
+                      {memberNames.length > 4 ? ` +${memberNames.length - 4} more` : ""}
+                    </text>
+                  </Show>
+                </g>
+              )
+            }}
           </For>
 
           {/* Connections */}
@@ -571,6 +743,20 @@ export function AgentCanvas(props: {
                 <button onClick={() => { setConnectFrom(m.targetId!); setContextMenu(null) }} class="w-full px-3 py-2 text-left text-sm text-white hover:bg-[#333]">
                   Connect to...
                 </button>
+                <Show when={store.teams.length > 0}>
+                  <div class="border-t border-[#333] my-1" />
+                  <For each={store.teams}>
+                    {(team) => (
+                      <button
+                        onClick={() => { addAgentToTeam(m.targetId!, team.id); setContextMenu(null) }}
+                        class="w-full px-3 py-2 text-left text-sm text-white hover:bg-[#333]"
+                        style={{ "font-size": "12px", "padding-left": "16px" }}
+                      >
+                        → {team.name}
+                      </button>
+                    )}
+                  </For>
+                </Show>
                 <div class="border-t border-[#333] my-1" />
                 <button onClick={() => deleteNode(m.targetId!)} class="w-full px-3 py-2 text-left text-sm text-[#E17055] hover:bg-[#333]">
                   Delete
@@ -581,9 +767,132 @@ export function AgentCanvas(props: {
                   Delete connection
                 </button>
               </Show>
+              <Show when={m.type === "group" && m.targetId}>
+                <button onClick={() => { const team = store.teams.find(t => t.id === m.targetId); if (team) handleTeamClick(team); setContextMenu(null) }} class="w-full px-3 py-2 text-left text-sm text-white hover:bg-[#333]">
+                  Edit Team
+                </button>
+                <div class="border-t border-[#333] my-1" />
+                <button onClick={() => deleteTeam(m.targetId!)} class="w-full px-3 py-2 text-left text-sm text-[#E17055] hover:bg-[#333]">
+                  Delete Team
+                </button>
+              </Show>
             </div>
           )
         }}
+      </Show>
+
+      {/* Team Editor Panel */}
+      <Show when={editingTeam()}>
+        <div
+          style={{
+            position: "absolute",
+            bottom: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            "z-index": 100,
+            background: "#1a1a2e",
+            border: "1px solid #333",
+            "border-radius": "10px",
+            padding: "16px",
+            "min-width": "320px",
+            display: "flex",
+            "flex-direction": "column",
+            gap: "10px",
+            "pointer-events": "auto",
+            "box-shadow": "0 8px 32px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center" }}>
+            <span style={{ "font-size": "14px", "font-weight": 600, color: editingTeam()?.color ?? "#6C5CE7" }}>Edit Team</span>
+            <button
+              onClick={closeTeamEditor}
+              style={{
+                width: "24px", height: "24px", display: "flex", "align-items": "center", "justify-content": "center",
+                "border-radius": "4px", border: "none", background: "transparent", color: "#999",
+                "font-size": "14px", cursor: "pointer",
+              }}
+            >✕</button>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+            <label style={{ flex: 1, "font-size": "12px", color: "#999" }}>
+              Name
+              <input
+                type="text"
+                value={teamDraft().name}
+                onInput={(e) => handleTeamDraftChange("name", e.currentTarget.value)}
+                style={{
+                  display: "block", width: "100%", padding: "6px 8px", "margin-top": "4px",
+                  border: "1px solid #444", "border-radius": "6px", background: "#0d0d1a",
+                  color: "#fff", "font-size": "13px", "box-sizing": "border-box",
+                }}
+              />
+            </label>
+            <label style={{ "font-size": "12px", color: "#999", "text-align": "center" }}>
+              Color
+              <div style={{ display: "flex", gap: "4px", "margin-top": "4px" }}>
+                {(["#6C5CE7", "#00B894", "#E17055", "#FDCB6E", "#74B9FF", "#A29BFE", "#FD79A8", "#55EFC4"] as const).map((c) => (
+                  <div
+                    onClick={() => handleTeamDraftChange("color", c)}
+                    style={{
+                      width: "22px", height: "22px", "border-radius": "50%",
+                      "background-color": c,
+                      border: teamDraft().color === c ? "3px solid white" : "3px solid transparent",
+                      cursor: "pointer",
+                      outline: teamDraft().color === c ? "2px solid " + c : "none",
+                    }}
+                  />
+                ))}
+              </div>
+            </label>
+          </div>
+
+          {/* Team members */}
+          <div>
+            <span style={{ "font-size": "12px", color: "#999" }}>Members</span>
+            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px", "margin-top": "4px" }}>
+              <For each={getTeamAgentNames(editingTeam()?.id ?? "")}>
+                {(memberName) => (
+                  <span style={{
+                    padding: "2px 8px", "border-radius": "4px", "font-size": "11px",
+                    background: (editingTeam()?.color ?? "#6C5CE7") + "22",
+                    color: "#ccc", border: "1px solid " + (editingTeam()?.color ?? "#6C5CE7") + "44",
+                  }}>
+                    {memberName}
+                  </span>
+                )}
+              </For>
+              <Show when={getTeamAgentNames(editingTeam()?.id ?? "").length === 0}>
+                <span style={{ "font-size": "11px", color: "#666" }}>
+                  No agents in this team. Right-click an agent → "→ Team Name" to add it.
+                </span>
+              </Show>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={saveTeamChanges}
+              style={{
+                padding: "6px 16px", "border-radius": "6px", border: "none",
+                background: "#6C5CE7", color: "#fff", cursor: "pointer", "font-size": "13px",
+                "font-weight": 600, flex: 1,
+              }}
+            >
+              Save Team
+            </button>
+            <button
+              onClick={() => editingTeam() && deleteTeam(editingTeam()!.id)}
+              style={{
+                padding: "6px 16px", "border-radius": "6px", border: "none",
+                background: "rgba(225,112,85,0.2)", color: "#E17055", cursor: "pointer",
+                "font-size": "13px", "font-weight": 600,
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
       </Show>
     </div>
   )

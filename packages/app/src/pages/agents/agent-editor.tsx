@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, createEffect, For, Show } from "solid-js"
 import type { AgentForm } from "./types"
 
 const MODES = ["subagent", "primary", "all"] as const
@@ -42,6 +42,17 @@ export function AgentEditor(props: {
 }) {
   const [form, setForm] = createSignal<AgentForm>(props.initial || defaultForm())
   const [showTools, setShowTools] = createSignal(false)
+
+  // Reset form when a different agent is selected (track by agent name)
+  let lastAgentName: string | undefined
+  createEffect(() => {
+    const init = props.initial
+    const agentName = init?.name
+    if (agentName !== lastAgentName) {
+      lastAgentName = agentName
+      setForm(init || defaultForm())
+    }
+  })
 
   const updateField = (field: keyof AgentForm, value: unknown) => {
     setForm((prev) => ({ ...prev, [field]: value }))
