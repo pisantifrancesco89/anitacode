@@ -71,7 +71,7 @@ jobs:
           OPENCODE_CHANNEL: custom
 
       - name: Package macOS
-        run: bun run --cwd packages/desktop package:mac
+        run: bun run --cwd packages/desktop package:mac -- --publish never
         env:
           OPENCODE_CHANNEL: custom
 

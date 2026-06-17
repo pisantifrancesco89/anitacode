@@ -5,7 +5,8 @@ import { AgentEditor } from "./agent-editor"
 import { AgentCanvas } from "./agent-canvas"
 import { useServerSync } from "@/context/server-sync"
 
-const BUILTIN_AGENTS = ["plan", "build", "general", "explore", "scout", "title", "summary", "compaction"]
+// Core OpenCode agents (native, always shown)
+const OPENCODE_CORE = new Set(["build", "plan", "general", "explore", "compaction", "title", "summary"])
 
 function defaultCanvasState(): AgentCanvasState {
   return { positions: [], connections: [], teams: [] }
@@ -17,6 +18,8 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = createSignal<string>("")
   const [editingAgent, setEditingAgent] = createSignal<AgentForm | undefined>()
   const [saving, setSaving] = createSignal(false)
+  const [search, setSearch] = createSignal("")
+  const [showAll, setShowAll] = createSignal(false)
 
   const config = createMemo(() => sync().data.config)
   const providerList = createMemo(() => sync().data.provider)
@@ -28,11 +31,14 @@ export default function AgentsPage() {
 
   const agentList = createMemo(() => {
     const agents = config()?.agent ?? {}
-    const list = Object.keys(agents).filter((name) => !BUILTIN_AGENTS.includes(name))
+    const q = search().toLowerCase()
     const result: AgentNode[] = []
-    for (const name of list) {
-      const cfg = agents[name]
+    for (const [name, cfg] of Object.entries(agents)) {
       if (!cfg || cfg.hidden) continue
+      // Filter: by default show only OpenCode core agents, unless showAll is toggled
+      if (!showAll() && !OPENCODE_CORE.has(name)) continue
+      // Search filter
+      if (q && !name.toLowerCase().includes(q) && !(cfg.description ?? "").toLowerCase().includes(q)) continue
       result.push({
         name,
         description: cfg.description ?? "",
@@ -202,7 +208,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", "min-height": "100vh", background: "#0a0a16" }}>
+    <div style={{ display: "flex", height: "100vh", background: "#0a0a16" }}>
       <aside
         style={{
           width: "240px",
@@ -225,6 +231,46 @@ export default function AgentsPage() {
           </button>
         </div>
 
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Search agents..."
+          value={search()}
+          onInput={(e) => setSearch(e.currentTarget.value)}
+          style={{
+            width: "100%",
+            padding: "6px 10px",
+            "border-radius": "6px",
+            border: "1px solid #333",
+            background: "#1a1a2e",
+            color: "#fff",
+            "font-size": "12px",
+            "box-sizing": "border-box",
+          }}
+        />
+
+        {/* Toggle: OpenCode only / All */}
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button
+            onClick={() => setShowAll(false)}
+            style={filterBtnStyle(!showAll())}
+          >
+            OpenCode
+          </button>
+          <button
+            onClick={() => setShowAll(true)}
+            style={filterBtnStyle(showAll())}
+          >
+            All ({(() => {
+              const agents = config()?.agent ?? {}
+              return Object.keys(agents).filter((n) => {
+                const cfg = agents[n]
+                return cfg && !cfg.hidden
+              }).length
+            })()})
+          </button>
+        </div>
+
         <div style={{ flex: 1, overflow: "auto" }}>
           <For each={agentList()}>
             {(agent) => (
@@ -244,10 +290,18 @@ export default function AgentsPage() {
               >
                 <div style={{ width: "8px", height: "8px", "border-radius": "50%", "background-color": agent.color }} />
                 <span style={{ flex: 1 }}>{agent.name}</span>
+                <Show when={OPENCODE_CORE.has(agent.name)}>
+                  <span style={{ "font-size": "9px", color: "#6C5CE7", background: "rgba(108,92,231,0.15)", padding: "1px 4px", "border-radius": "3px" }}>core</span>
+                </Show>
                 <span style={{ "font-size": "10px", color: "#666" }}>{agent.mode}</span>
               </div>
             )}
           </For>
+          <Show when={agentList().length === 0}>
+            <div style={{ padding: "16px", "text-align": "center", color: "#666", "font-size": "12px" }}>
+              No agents found
+            </div>
+          </Show>
         </div>
 
         <Show when={saving()}>
@@ -271,16 +325,18 @@ export default function AgentsPage() {
         </button>
       </aside>
 
-      <main style={{ flex: 1, overflow: "hidden" }}>
+      <main style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", "flex-direction": "column" }}>
         <Show when={viewMode() === "canvas"}>
-          <AgentCanvas
-            agents={agentList()}
-            canvasState={canvasState()}
-            onCanvasStateChange={handleCanvasStateChange}
-            onSelect={handleNodeSelect}
-            onEdit={handleNodeEdit}
-            onDelete={handleDeleteAgent}
-          />
+          <div style={{ flex: 1, position: "relative" }}>
+            <AgentCanvas
+              agents={agentList()}
+              canvasState={canvasState()}
+              onCanvasStateChange={handleCanvasStateChange}
+              onSelect={handleNodeSelect}
+              onEdit={handleNodeEdit}
+              onDelete={handleDeleteAgent}
+            />
+          </div>
         </Show>
 
         <Show when={viewMode() === "editor"}>
@@ -309,5 +365,20 @@ function tabStyle(active: boolean) {
     cursor: "pointer",
     "font-size": "13px",
     "font-weight": "bold",
+  } as const
+}
+
+function filterBtnStyle(active: boolean) {
+  return {
+    flex: 1,
+    padding: "4px 8px",
+    "border-radius": "4px",
+    border: "1px solid",
+    "border-color": active ? "#6C5CE7" : "#333",
+    background: active ? "rgba(108,92,231,0.15)" : "transparent",
+    color: active ? "#6C5CE7" : "#666",
+    cursor: "pointer",
+    "font-size": "11px",
+    "font-weight": "600",
   } as const
 }
