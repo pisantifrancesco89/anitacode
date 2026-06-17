@@ -56,6 +56,7 @@ const Session = lazy(() => import("@/pages/session"))
 const NewSession = lazy(() => import("@/pages/new-session"))
 const AgentsRoute = lazy(() => import("@/pages/agents"))
 const KanbanRoute = lazy(() => import("@/pages/kanban"))
+const MemoryRoute = lazy(() => import("@/pages/memory"))
 
 const SessionRoute = Object.assign(
   () => {
@@ -454,6 +455,7 @@ export function AppInterface(props: {
               <Route path="/" component={HomeRoute} />
               <Route path="/agents" component={AgentsRoute} />
               <Route path="/kanban" component={KanbanRoute} />
+              <Route path="/memory" component={MemoryRoute} />
               <Route path="/:dir" component={DirectoryLayout}>
                 <Route path="/" component={() => <Navigate href="session" />} />
                 <Route path="/session/:id?" component={SessionRoute} />

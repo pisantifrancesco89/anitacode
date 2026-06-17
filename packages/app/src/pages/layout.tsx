@@ -1079,6 +1079,13 @@ export default function Layout(props: ParentProps) {
         onSelect: openTasks,
       },
       {
+        id: "memory.open",
+        title: "Memory",
+        category: "AnitaCode",
+        keybind: "mod+shift+m",
+        onSelect: () => navigate("/memory"),
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),
@@ -2381,6 +2388,9 @@ export default function Layout(props: ParentProps) {
       kanbanLabel={() => "Tasks"}
       kanbanKeybind={() => command.keybind("kanban.open")}
       onOpenKanban={openTasks}
+      memoryLabel={() => "Memory"}
+      memoryKeybind={() => command.keybind("memory.open")}
+      onOpenMemory={() => navigate("/memory")}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }

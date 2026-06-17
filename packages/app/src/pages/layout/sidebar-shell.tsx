@@ -36,6 +36,9 @@ export const SidebarContent = (props: {
   kanbanLabel?: Accessor<string>
   kanbanKeybind?: Accessor<string | undefined>
   onOpenKanban?: () => void
+  memoryLabel?: Accessor<string>
+  memoryKeybind?: Accessor<string | undefined>
+  onOpenMemory?: () => void
   renderPanel: () => JSX.Element
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
@@ -123,6 +126,21 @@ export const SidebarContent = (props: {
                 size="large"
                 onClick={() => props.onOpenKanban?.()}
                 aria-label={props.kanbanLabel?.()}
+              />
+            </TooltipKeybind>
+          </Show>
+          <Show when={props.onOpenMemory}>
+            <TooltipKeybind
+              placement={placement()}
+              title={props.memoryLabel?.() ?? ""}
+              keybind={props.memoryKeybind?.() ?? ""}
+            >
+              <IconButton
+                icon="file-tree"
+                variant="ghost"
+                size="large"
+                onClick={() => props.onOpenMemory?.()}
+                aria-label={props.memoryLabel?.()}
               />
             </TooltipKeybind>
           </Show>
