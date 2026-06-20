@@ -32,7 +32,6 @@ export function AgentCanvas(props: {
   onEdit: (name: string) => void
   onDelete: (name: string) => void
 }): JSX.Element {
-  let svgRef: SVGSVGElement | undefined
   let containerRef: HTMLDivElement | undefined
 
   // Viewport state
@@ -99,8 +98,9 @@ export function AgentCanvas(props: {
     ensurePositions()
   })
 
-  // Sync props changes
-  createMemo(() => {
+  // Sync props changes (use createEffect, not createMemo — this performs a
+  // side effect on the store, not a derived computation)
+  createEffect(() => {
     const state = props.canvasState
     setStore("positions", state.positions)
     setStore("connections", state.connections)
@@ -111,16 +111,6 @@ export function AgentCanvas(props: {
   const getPosition = (name: string): { x: number; y: number } => {
     const pos = store.positions.find((p) => p.name === name)
     return pos ?? { x: 100, y: 100 }
-  }
-
-  // Screen to canvas coordinates
-  const screenToCanvas = (sx: number, sy: number) => {
-    const rect = containerRef?.getBoundingClientRect()
-    if (!rect) return { x: sx, y: sy }
-    return {
-      x: (sx - rect.left - panX()) / zoom(),
-      y: (sy - rect.top - panY()) / zoom(),
-    }
   }
 
   // Check if an agent is inside a team's bounding box
@@ -134,20 +124,6 @@ export function AgentCanvas(props: {
     )
   }
 
-  // Auto-assign agents to teams based on position
-  const computeAgentTeams = () => {
-    const assignments: Record<string, string[]> = {}
-    for (const team of store.teams) {
-      for (const agentName of allAgentNames()) {
-        if (isAgentInTeam(agentName, team)) {
-          if (!assignments[team.id]) assignments[team.id] = []
-          assignments[team.id].push(agentName)
-        }
-      }
-    }
-    return assignments
-  }
-
   // Get agents that belong to a team (position-based + explicit assignment)
   const getTeamAgentNames = (teamId: string): string[] => {
     const team = store.teams.find((t) => t.id === teamId)
@@ -157,12 +133,16 @@ export function AgentCanvas(props: {
     return [...new Set([...positional, ...explicit])]
   }
 
-  // Sync positions → agentNames for all teams
+  // Sync positions → agentNames for all teams.
+  // Merge positional members with explicitly-assigned ones (union) so that
+  // manually-added members (via context menu) are not wiped on the next drag.
   const syncTeamAgentNames = () => {
     for (const team of store.teams) {
-      const members = allAgentNames().filter((name) => isAgentInTeam(name, team))
-      if (team.agentNames.length !== members.length || !members.every((m) => team.agentNames.includes(m))) {
-        setStore("teams", (t) => t.id === team.id, { agentNames: members })
+      const positional = allAgentNames().filter((name) => isAgentInTeam(name, team))
+      const explicit = team.agentNames ?? []
+      const merged = [...new Set([...positional, ...explicit])]
+      if (team.agentNames.length !== merged.length || !merged.every((m) => team.agentNames.includes(m))) {
+        setStore("teams", (t) => t.id === team.id, { agentNames: merged })
       }
     }
   }
@@ -487,7 +467,6 @@ export function AgentCanvas(props: {
 
       {/* Canvas */}
       <svg
-        ref={svgRef}
         width="100%"
         height="100%"
         class="absolute inset-0"
@@ -505,11 +484,13 @@ export function AgentCanvas(props: {
           {/* Teams (behind nodes) */}
           <For each={store.teams}>
             {(team) => {
-              const memberNames = getTeamAgentNames(team.id)
+              // Make memberNames reactive so the member count badge and dots
+              // update when agents are dragged into/out of the team bounding box
+              const memberNames = createMemo(() => getTeamAgentNames(team.id))
               const isEditing = editingTeam()?.id === team.id
               // Get agent colors for member dots
               const memberColors = createMemo(() =>
-                memberNames.map((name) => {
+                memberNames().map((name) => {
                   const agent = props.agents.find((a) => a.name === name)
                   return agent?.color ?? "#666"
                 })
@@ -580,11 +561,11 @@ export function AgentCanvas(props: {
                     text-anchor="middle"
                     font-weight="600"
                   >
-                    {memberNames.length}
+                    {memberNames().length}
                   </text>
                   {/* Member agent dots */}
-                  <Show when={memberNames.length > 0}>
-                    <For each={memberNames.slice(0, 8)}>
+                  <Show when={memberNames().length > 0}>
+                    <For each={memberNames().slice(0, 8)}>
                       {(name, i) => {
                         const dotX = team.x + 16 + (i() % 4) * 24
                         const dotY = team.y + 40 + Math.floor(i() / 4) * 24
@@ -607,7 +588,7 @@ export function AgentCanvas(props: {
                         )
                       }}
                     </For>
-                    <Show when={memberNames.length > 8}>
+                    <Show when={memberNames().length > 8}>
                       <text
                         x={team.x + 16 + (8 % 4) * 24}
                         y={team.y + 40 + Math.floor(8 / 4) * 24 + 3}
@@ -615,12 +596,12 @@ export function AgentCanvas(props: {
                         font-size="9"
                         text-anchor="middle"
                       >
-                        +{memberNames.length - 8}
+                        +{memberNames().length - 8}
                       </text>
                     </Show>
                   </Show>
                   {/* Empty state */}
-                  <Show when={memberNames.length === 0}>
+                  <Show when={memberNames().length === 0}>
                     <text
                       x={team.x + team.width / 2}
                       y={team.y + team.height / 2 + 4}

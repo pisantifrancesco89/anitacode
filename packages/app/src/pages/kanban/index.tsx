@@ -3,6 +3,7 @@ import type { Task, TaskStatus, TaskPriority } from "./types"
 import { COLUMNS } from "./types"
 import { KanbanColumn } from "./kanban-column"
 import { TaskDetail } from "./task-detail"
+import { agentNames } from "./agents"
 import { useServerSync } from "@/context/server-sync"
 
 const STORAGE_KEY = "anitacode.kanban.tasks"
@@ -23,12 +24,6 @@ function saveLocalTasks(tasks: Task[]) {
     // Ignore storage errors
   }
 }
-
-const AGENTS = [
-  "all", "orchestrator", "planner", "builder", "reviewer", "documenter",
-  "backend-specialist", "frontend-specialist", "database-specialist",
-  "security-specialist", "devops-specialist", "qa-engineer",
-]
 
 const PRIORITIES: Array<TaskPriority | "all"> = ["all", "high", "medium", "low"]
 
@@ -51,6 +46,7 @@ function mapTodoStatus(status: string): TaskStatus {
   switch (status) {
     case "pending": return "todo"
     case "in_progress": return "in_progress"
+    case "review": return "review"
     case "completed": return "done"
     case "cancelled": return "cancelled"
     default: return "todo"
@@ -63,6 +59,9 @@ export default function KanbanPage() {
   const [agentFilter, setAgentFilter] = createSignal("all")
   const [priorityFilter, setPriorityFilter] = createSignal<"all" | TaskPriority>("all")
   const [localTasks, setLocalTasks] = createSignal<Task[]>(loadLocalTasks())
+
+  // Agent list derived from config (merged with fallback specialists)
+  const agents = createMemo(() => agentNames(sync().data.config?.agent as Record<string, unknown> | undefined))
 
   // Persist local tasks to localStorage
   createEffect(() => saveLocalTasks(localTasks()))
@@ -87,23 +86,34 @@ export default function KanbanPage() {
     return [...local, ...remote.filter((t) => !localIds.has(t.id))]
   })
 
-  const filtered = () => {
+  const filtered = createMemo(() => {
     return allTasks().filter((t) => {
       if (agentFilter() !== "all" && t.agentName !== agentFilter()) return false
       if (priorityFilter() !== "all" && t.priority !== priorityFilter()) return false
       return true
     })
-  }
+  })
 
   const getColumnTasks = (status: TaskStatus) => {
     return filtered().filter((t) => t.status === status)
   }
 
   const handleDrop = (taskId: string, newStatus: TaskStatus) => {
-    const updateTasks = (prev: Task[]) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, updatedAt: Date.now() } : t))
-
-    setLocalTasks(updateTasks)
+    setLocalTasks((prev) => {
+      // If the task is already local, update its status
+      const existing = prev.find((t) => t.id === taskId)
+      if (existing) {
+        return prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, updatedAt: Date.now() } : t))
+      }
+      // Task is remote (from a session) — promote it to a local override
+      // so the status change persists. The dedup in allTasks() ensures the
+      // local copy takes precedence over the remote one.
+      const remote = allTasks().find((t) => t.id === taskId)
+      if (remote) {
+        return [...prev, { ...remote, status: newStatus, updatedAt: Date.now() }]
+      }
+      return prev
+    })
   }
 
   const handleTaskClick = (task: Task) => {
@@ -160,7 +170,7 @@ export default function KanbanPage() {
             onInput={(e) => setAgentFilter(e.currentTarget.value)}
             style={selectStyle()}
           >
-            <For each={AGENTS}>
+            <For each={["all", ...agents()]}>
               {(a) => <option value={a}>{a === "all" ? "All Agents" : a}</option>}
             </For>
           </select>

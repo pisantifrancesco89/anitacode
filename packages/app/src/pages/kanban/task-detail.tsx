@@ -1,17 +1,11 @@
 import { createSignal, For, Show } from "solid-js"
 import type { Task, TaskPriority, TaskStatus } from "./types"
 import { COLUMNS } from "./types"
+import { FALLBACK_AGENTS } from "./agents"
 
 const STATUSES = COLUMNS.map((c) => c.id)
 const PRIORITIES: TaskPriority[] = ["high", "medium", "low"]
-const AGENTS = [
-  "orchestrator", "planner", "builder", "reviewer", "documenter",
-  "backend-specialist", "frontend-specialist", "database-specialist",
-  "security-specialist", "devops-specialist", "qa-engineer",
-  "ui-specialist", "ai-engineer", "mobile-specialist", "payment-specialist",
-  "performance-specialist", "integration-specialist", "realtime-specialist",
-  "data-specialist", "testing-specialist", "auth-specialist",
-]
+const AGENTS = [...FALLBACK_AGENTS]
 
 export function TaskDetail(props: {
   task: Task

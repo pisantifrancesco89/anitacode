@@ -2,32 +2,53 @@ import { createStore } from "solid-js/store"
 import type { MemoryEntry, MemoryCategory, MemoryScope, MemoryFile } from "./types"
 
 // ─── File system helpers ───────────────────────────────────────────
+// Uses the Electron main process IPC (window.api) for file operations.
+// Falls back to localStorage when running outside the desktop app (web mode).
+// The Window.api type is declared in src/app.tsx.
+
+const STORAGE_PREFIX = "anitacode.memory."
 
 async function readTextFile(path: string): Promise<string> {
-  // Use the server SDK to read files
-  const result = await fetch(`/api/fs/read?path=${encodeURIComponent(path)}`)
-  if (!result.ok) throw new Error(`Failed to read ${path}`)
-  return result.text()
+  if (window.api?.fsReadFile) return window.api.fsReadFile(path)
+  // Web fallback: localStorage
+  return localStorage.getItem(STORAGE_PREFIX + path) ?? ""
 }
 
 async function writeTextFile(path: string, content: string): Promise<void> {
-  await fetch(`/api/fs/write?path=${encodeURIComponent(path)}`, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: content,
-  })
+  if (window.api?.fsWriteFile) {
+    await window.api.fsWriteFile(path, content)
+    return
+  }
+  localStorage.setItem(STORAGE_PREFIX + path, content)
 }
 
 async function listDir(path: string): Promise<string[]> {
-  const result = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}`)
-  if (!result.ok) return []
-  const data = await result.json()
-  return data.files ?? data ?? []
+  if (window.api?.fsListDir) return window.api.fsListDir(path)
+  // Web fallback: scan localStorage keys with this prefix
+  const prefix = STORAGE_PREFIX + path + "/"
+  const entries: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith(prefix)) {
+      const rest = key.slice(prefix.length)
+      const name = rest.split("/")[0]
+      if (name && !entries.includes(name)) entries.push(name)
+    }
+  }
+  return entries
 }
 
 async function fileExists(path: string): Promise<boolean> {
-  const result = await fetch(`/api/fs/exists?path=${encodeURIComponent(path)}`)
-  return result.ok && (await result.json()) === true
+  if (window.api?.fsExists) return window.api.fsExists(path)
+  return localStorage.getItem(STORAGE_PREFIX + path) !== null
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  if (window.api?.fsMkdir) {
+    await window.api.fsMkdir(dir)
+    return
+  }
+  // Web fallback: no-op (localStorage doesn't need dirs)
 }
 
 // ─── Paths ─────────────────────────────────────────────────────────
@@ -35,9 +56,15 @@ async function fileExists(path: string): Promise<boolean> {
 const GLOBAL_MEMORY_DIR = ".anitacode/memory"
 const PROJECT_MEMORY_DIR = ".memory"
 
-function globalDir() {
-  const home = typeof process !== "undefined" ? process.env.HOME || process.env.USERPROFILE || "" : ""
-  return `${home}/${GLOBAL_MEMORY_DIR}`
+let cachedHomeDir: string | undefined
+
+async function globalDir(): Promise<string> {
+  if (window.api?.fsGetHomeDir) {
+    if (!cachedHomeDir) cachedHomeDir = await window.api.fsGetHomeDir()
+    return `${cachedHomeDir}/${GLOBAL_MEMORY_DIR}`
+  }
+  // Web fallback: use a virtual path (localStorage keys are namespaced)
+  return `~/${GLOBAL_MEMORY_DIR}`
 }
 
 // ─── Categories and their file names ───────────────────────────────
@@ -101,7 +128,7 @@ export function createMemoryService() {
     const now = Date.now()
 
     // Load global memory
-    const globalPath = globalDir()
+    const globalPath = await globalDir()
     for (const cat of Object.keys(CATEGORY_FILES) as MemoryCategory[]) {
       try {
         const content = await readTextFile(`${globalPath}/${CATEGORY_FILES[cat]}`)
@@ -180,8 +207,9 @@ export function createMemoryService() {
     const filename = CATEGORY_FILES[entry.category]
 
     if (entry.scope === "global") {
-      const path = `${globalDir()}/${filename}`
-      await ensureDir(globalDir())
+      const dir = await globalDir()
+      const path = `${dir}/${filename}`
+      await ensureDir(dir)
       await writeTextFile(path, content)
     } else if (entry.scope === "project" && entry.projectDir) {
       const dir = `${entry.projectDir}/${PROJECT_MEMORY_DIR}`
@@ -211,8 +239,9 @@ export function createMemoryService() {
     const content = `# ${CATEGORY_LABELS[category]}\n\n`
 
     if (scope === "global") {
-      const path = `${globalDir()}/${filename}`
-      await ensureDir(globalDir())
+      const dir = await globalDir()
+      const path = `${dir}/${filename}`
+      await ensureDir(dir)
       if (!(await fileExists(path))) {
         await writeTextFile(path, content)
       }

@@ -1075,7 +1075,7 @@ export default function Layout(props: ParentProps) {
         id: "kanban.open",
         title: "Tasks",
         category: "AnitaCode",
-        keybind: "mod+shift+t",
+        keybind: "mod+shift+k",
         onSelect: openTasks,
       },
       {
@@ -2404,11 +2404,37 @@ export default function Layout(props: ParentProps) {
         <div class="relative bg-v2-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
           {autoselecting() ?? ""}
           <Titlebar update={titlebarUpdate} />
-          <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
-            <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
-              {props.children}
-            </Show>
-          </main>
+          <div class="flex-1 min-h-0 min-w-0 flex">
+            {/* v2 nav rail for AnitaCode pages (Agents / Kanban / Memory) */}
+            <nav class="shrink-0 w-12 flex flex-col items-center gap-1 pt-2 border-r border-v2-background-border-soft">
+              <IconButton
+                icon="brain"
+                variant="ghost"
+                size="large"
+                onClick={() => navigate("/agents")}
+                aria-label="Agent Builder"
+              />
+              <IconButton
+                icon="checklist"
+                variant="ghost"
+                size="large"
+                onClick={openTasks}
+                aria-label="Tasks"
+              />
+              <IconButton
+                icon="file-tree"
+                variant="ghost"
+                size="large"
+                onClick={() => navigate("/memory")}
+                aria-label="Memory"
+              />
+            </nav>
+            <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
+              <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                {props.children}
+              </Show>
+            </main>
+          </div>
           {import.meta.env.DEV && <DebugBar />}
           <HelpButton />
           <ToastRegion v2={newDesign()} />

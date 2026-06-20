@@ -209,6 +209,19 @@ export function AgentEditor(props: {
         </label>
 
         <label style="flex: 1">
+          Top P ({form().topP})
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={form().topP}
+            onInput={(e) => updateField("topP", parseFloat(e.currentTarget.value))}
+            style="width: 100%"
+          />
+        </label>
+
+        <label style="flex: 1">
           Max Steps
           <input
             type="number"

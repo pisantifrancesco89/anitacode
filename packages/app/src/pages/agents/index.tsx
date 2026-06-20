@@ -8,6 +8,25 @@ import { useServerSync } from "@/context/server-sync"
 // Core OpenCode agents (native, always shown)
 const OPENCODE_CORE = new Set(["build", "plan", "general", "explore", "compaction", "title", "summary"])
 
+const CANVAS_STORAGE_KEY = "anitacode.agent-canvas"
+
+function loadCanvasState(): AgentCanvasState {
+  try {
+    const raw = localStorage.getItem(CANVAS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : defaultCanvasState()
+  } catch {
+    return defaultCanvasState()
+  }
+}
+
+function saveCanvasState(state: AgentCanvasState) {
+  try {
+    localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 function defaultCanvasState(): AgentCanvasState {
   return { positions: [], connections: [], teams: [] }
 }
@@ -24,10 +43,9 @@ export default function AgentsPage() {
   const config = createMemo(() => sync().data.config)
   const providerList = createMemo(() => sync().data.provider)
 
-  // Canvas state (persisted in config)
-  const [canvasState, setCanvasState] = createSignal<AgentCanvasState>(
-    (config() as any)?.agent_canvas ?? defaultCanvasState(),
-  )
+  // Canvas state (persisted in localStorage, NOT in opencode.jsonc config
+  // since agent_canvas is not a field in the Config schema)
+  const [canvasState, setCanvasState] = createSignal<AgentCanvasState>(loadCanvasState())
 
   const agentList = createMemo(() => {
     const agents = config()?.agent ?? {}
@@ -90,20 +108,10 @@ export default function AgentsPage() {
     return result
   })
 
-  const treeData = createMemo((): AgentNode => {
-    const list = agentList()
-    const primaries = list.filter((a) => a.mode === "primary")
-    const root = primaries[0] ?? { name: "orchestrator", mode: "primary" as const, children: [], description: "", color: "#6C5CE7" }
-    const subagents = list.filter((a) => a.mode === "subagent" && a.name !== root.name)
-    root.children = subagents
-    return root
-  })
-
   const handleCanvasStateChange = async (state: AgentCanvasState) => {
     setCanvasState(state)
-    // Persist to config
-    const currentConfig = config() ?? {}
-    await sync().updateConfig({ ...currentConfig, agent_canvas: state } as any)
+    // Persist to localStorage (not opencode.jsonc — agent_canvas is not a Config field)
+    saveCanvasState(state)
   }
 
   const handleNodeSelect = (name: string) => {
@@ -141,10 +149,6 @@ export default function AgentsPage() {
     }
   }
 
-  const handleNodeEdit = (name: string) => {
-    handleNodeSelect(name)
-  }
-
   const handleSave = async (form: AgentForm) => {
     setSaving(true)
     try {
@@ -162,7 +166,9 @@ export default function AgentsPage() {
         hidden: form.hidden || undefined,
         disable: form.disabled || undefined,
         permission: {
-          ...form.permission,
+          edit: form.permission.edit,
+          bash: form.permission.bash,
+          webfetch: form.permission.webfetch,
           doom_loop: form.permission.doomLoop,
           external_directory: form.permission.externalDirectory,
         },
@@ -333,7 +339,7 @@ export default function AgentsPage() {
               canvasState={canvasState()}
               onCanvasStateChange={handleCanvasStateChange}
               onSelect={handleNodeSelect}
-              onEdit={handleNodeEdit}
+              onEdit={handleNodeSelect}
               onDelete={handleDeleteAgent}
             />
           </div>
