@@ -105,4 +105,12 @@ export type ElectronAPI = {
   setBackgroundColor: (color: string) => Promise<void>
   exportDebugLogs: () => Promise<string>
   recordFatalRendererError: (error: FatalRendererError) => Promise<void>
+
+  // File system helpers (desktop-only, for Memory page)
+  fsReadFile: (path: string) => Promise<string>
+  fsWriteFile: (path: string, content: string) => Promise<void>
+  fsExists: (path: string) => Promise<boolean>
+  fsMkdir: (path: string) => Promise<void>
+  fsListDir: (path: string) => Promise<string[]>
+  fsGetHomeDir: () => Promise<string>
 }

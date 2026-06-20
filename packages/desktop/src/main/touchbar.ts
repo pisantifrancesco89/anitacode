@@ -1,4 +1,4 @@
-import { BrowserWindow, TouchBar, nativeImage } from "electron"
+import { BrowserWindow, TouchBar } from "electron"
 
 const { TouchBarButton, TouchBarSpacer } = TouchBar
 

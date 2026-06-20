@@ -151,6 +151,8 @@ function getConfig() {
         publish: { provider: "github", owner: "pisantifrancesco89", repo: "anitacode", channel: "latest" },
         mac: {
           ...base.mac,
+          hardenedRuntime: true,
+          identity: "-",
           icon: "resources/icons/icon.icns",
         },
         dmg: {

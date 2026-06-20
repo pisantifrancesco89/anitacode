@@ -119,29 +119,6 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
-const windowMap = new Map<string, BrowserWindow>()
-
-export function getWindowCount() {
-  return BrowserWindow.getAllWindows().length
-}
-
-export function createWindow(id: string) {
-  const existing = windowMap.get(id)
-  if (existing && !existing.isDestroyed()) {
-    existing.focus()
-    return existing
-  }
-
-  const win = createMainWindow()
-  windowMap.set(id, win)
-
-  win.on("closed", () => {
-    windowMap.delete(id)
-  })
-
-  return win
-}
-
 export function createMainWindow() {
   const state = windowState({
     defaultWidth: 1280,

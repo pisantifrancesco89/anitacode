@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process"
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { stat } from "node:fs/promises"
-import { basename } from "node:path"
+import { basename, dirname, join } from "node:path"
+import { homedir } from "node:os"
 import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
@@ -164,7 +166,13 @@ export function registerIpcHandlers(deps: Deps) {
   )
 
   ipcMain.on("open-link", (_event: IpcMainEvent, url: string) => {
-    void shell.openExternal(url)
+    try {
+      const parsed = new URL(url)
+      if (!["http:", "https:", "mailto:"].includes(parsed.protocol)) return
+      void shell.openExternal(url)
+    } catch {
+      // Invalid URL — ignore
+    }
   })
 
   ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string, app?: string) => {
@@ -205,7 +213,7 @@ export function registerIpcHandlers(deps: Deps) {
     return app.getLoginItemSettings()
   })
 
-  ipcMain.handle("set-login-item-settings", (_event: IpcMainInvokeEvent, settings: any) => {
+  ipcMain.handle("set-login-item-settings", (_event: IpcMainInvokeEvent, settings: Electron.LoginItemSettingsOptions) => {
     app.setLoginItemSettings(settings)
   })
 
@@ -265,6 +273,59 @@ export function registerIpcHandlers(deps: Deps) {
       relaunch: deps.relaunch,
     })
   })
+
+  // ── install-cli ──────────────────────────────────────────────
+  // Installs the opencode CLI by symlinking the bundled sidecar.
+  ipcMain.handle("install-cli", async () => {
+    const cliPath = join(dirname(process.execPath), "opencode")
+    const target = process.execPath
+    try {
+      writeFileSync(cliPath, `#!/bin/sh\nexec "${target}" --cli "$@"\n`)
+      await import("node:fs/promises").then((fs) => fs.chmod(cliPath, 0o755))
+      return cliPath
+    } catch (err) {
+      throw new Error(`Failed to install CLI: ${err}`)
+    }
+  })
+
+  // ── File system helpers for Memory page ──────────────────────
+  // These let the renderer read/write memory files via the main
+  // process, which has full Node.js fs access.
+
+  function resolvePath(p: string): string {
+    if (p.startsWith("~/")) return join(homedir(), p.slice(2))
+    if (p === "~") return homedir()
+    return p
+  }
+
+  ipcMain.handle("fs-read-file", (_event: IpcMainInvokeEvent, path: string) => {
+    const resolved = resolvePath(path)
+    if (!existsSync(resolved)) throw new Error(`File not found: ${path}`)
+    return readFileSync(resolved, "utf-8")
+  })
+
+  ipcMain.handle("fs-write-file", (_event: IpcMainInvokeEvent, path: string, content: string) => {
+    const resolved = resolvePath(path)
+    const dir = dirname(resolved)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    writeFileSync(resolved, content, "utf-8")
+  })
+
+  ipcMain.handle("fs-exists", (_event: IpcMainInvokeEvent, path: string) => {
+    return existsSync(resolvePath(path))
+  })
+
+  ipcMain.handle("fs-mkdir", (_event: IpcMainInvokeEvent, path: string) => {
+    mkdirSync(resolvePath(path), { recursive: true })
+  })
+
+  ipcMain.handle("fs-list-dir", (_event: IpcMainInvokeEvent, path: string) => {
+    const resolved = resolvePath(path)
+    if (!existsSync(resolved)) return []
+    return readdirSync(resolved)
+  })
+
+  ipcMain.handle("fs-get-home-dir", () => homedir())
 }
 
 export function sendMenuCommand(win: BrowserWindow, id: string) {

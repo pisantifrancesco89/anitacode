@@ -54,7 +54,9 @@ function step(msg: string) {
 }
 
 async function spawn(cmd: string, opts?: { cwd?: string; silent?: boolean }) {
-  const proc = Bun.spawnSync(cmd.split(/\s+/), {
+  // Use sh -c so the shell handles quote parsing for arguments like
+  // git commit -m "chore: bump version to 1.2.3"
+  const proc = Bun.spawnSync(["sh", "-c", cmd], {
     cwd: opts?.cwd ?? ROOT,
     env: { ...process.env, OPENCODE_CHANNEL: "custom" },
   })
@@ -95,7 +97,13 @@ async function main() {
 
   // 5. Package for current platform
   step("Packaging (macOS)")
-  await spawn("bun run package:mac", { cwd: DESKTOP_DIR })
+  await spawn("bun run package:mac -- --publish never", { cwd: DESKTOP_DIR })
+
+  // 5b. Ad-hoc sign the macOS app bundle (prevents "damaged" Gatekeeper error)
+  if (process.platform === "darwin") {
+    step("Ad-hoc signing (macOS)")
+    await spawn("bun run sign-adhoc", { cwd: DESKTOP_DIR })
+  }
 
   // 6. List built artifacts
   const distDir = resolve(DESKTOP_DIR, "dist")
@@ -106,7 +114,7 @@ async function main() {
   step("Committing and tagging")
   const sha = (await spawn("git rev-parse HEAD")).trim()
   await spawn(`git add -- packages/desktop/package.json`)
-  await spawn(`git commit -m "chore: bump version to ${newVersion}"`)
+  await spawn(`git commit -m "chore(desktop): bump version to ${newVersion}"`)
   await spawn(`git tag -f v${newVersion}`)
 
   // 8. Push

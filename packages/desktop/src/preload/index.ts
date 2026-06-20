@@ -127,6 +127,14 @@ const api: ElectronAPI = {
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   exportDebugLogs: () => ipcRenderer.invoke("export-debug-logs"),
   recordFatalRendererError: (error) => ipcRenderer.invoke("record-fatal-renderer-error", error),
+
+  // File system helpers (desktop-only, for Memory page)
+  fsReadFile: (path) => ipcRenderer.invoke("fs-read-file", path),
+  fsWriteFile: (path, content) => ipcRenderer.invoke("fs-write-file", path, content),
+  fsExists: (path) => ipcRenderer.invoke("fs-exists", path),
+  fsMkdir: (path) => ipcRenderer.invoke("fs-mkdir", path),
+  fsListDir: (path) => ipcRenderer.invoke("fs-list-dir", path),
+  fsGetHomeDir: () => ipcRenderer.invoke("fs-get-home-dir"),
 }
 
 contextBridge.exposeInMainWorld("api", api)

@@ -21,6 +21,7 @@
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native",
+    "sign-adhoc": "bun ./scripts/sign-adhoc.ts",
     "release:custom": "bun ./scripts/release-custom.ts"
   },
   "main": "./out/main/index.js",
