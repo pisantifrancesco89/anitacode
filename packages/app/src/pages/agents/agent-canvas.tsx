@@ -8,13 +8,17 @@ const NODE_H = 60
 const PORT_R = 6
 
 type DragState = {
-  type: "node" | "pan" | "connect"
+  type: "node" | "pan" | "connect" | "resize"
   nodeId?: string
+  teamId?: string
   startX: number
   startY: number
   offsetX?: number
   offsetY?: number
   fromAgent?: string
+  resizeHandle?: "br" | "tr" | "bl"
+  startW?: number
+  startH?: number
 }
 
 type ContextMenuState = {
@@ -34,10 +38,10 @@ export function AgentCanvas(props: {
 }): JSX.Element {
   let containerRef: HTMLDivElement | undefined
 
-  // Viewport state
-  const [zoom, setZoom] = createSignal(1)
-  const [panX, setPanX] = createSignal(0)
-  const [panY, setPanY] = createSignal(0)
+  // Viewport state — initialized from persisted canvas state
+  const [zoom, setZoom] = createSignal(props.canvasState.viewport?.zoom ?? 1)
+  const [panX, setPanX] = createSignal(props.canvasState.viewport?.panX ?? 0)
+  const [panY, setPanY] = createSignal(props.canvasState.viewport?.panY ?? 0)
 
   // Canvas data (from props, local copy for drag)
   const [store, setStore] = createStore<AgentCanvasState>({
@@ -53,6 +57,34 @@ export function AgentCanvas(props: {
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null)
   const [connectFrom, setConnectFrom] = createSignal<string | null>(null)
 
+  // All agent names (reactive)
+  const allAgentNames = createMemo(() => props.agents.map((a) => a.name))
+  const agentNameSet = createMemo(() => new Set(allAgentNames()))
+
+  // Clean orphan state for agents that no longer exist
+  const cleanOrphanState = () => {
+    const valid = agentNameSet()
+    let changed = false
+    setStore(
+      produce((draft) => {
+        const beforePos = draft.positions.length
+        draft.positions = draft.positions.filter((p) => valid.has(p.name))
+        if (draft.positions.length !== beforePos) changed = true
+
+        const beforeConn = draft.connections.length
+        draft.connections = draft.connections.filter((c) => valid.has(c.from) && valid.has(c.to))
+        if (draft.connections.length !== beforeConn) changed = true
+
+        for (const team of draft.teams) {
+          const beforeLen = team.agentNames.length
+          team.agentNames = team.agentNames.filter((n) => valid.has(n))
+          if (team.agentNames.length !== beforeLen) changed = true
+        }
+      }),
+    )
+    if (changed) emitChange()
+  }
+
   // Initialize default positions for agents without positions
   const ensurePositions = () => {
     const existing = new Set(store.positions.map((p) => p.name))
@@ -61,50 +93,70 @@ export function AgentCanvas(props: {
 
     setStore(
       produce((draft) => {
+        const startY = draft.positions.reduce((max, p) => Math.max(max, p.y), 0)
         let offsetX = 100
-        let offsetY = 100
-        const maxY = draft.positions.reduce((max, p) => Math.max(max, p.y), 0) + NODE_H + 40
+        let offsetY = startY + NODE_H + 40
 
         for (const agent of missing) {
-          // Try to find parent position
-          const parent = draft.positions.find((p) =>
-            props.agents.find((a) => a.name === p.name)?.children.some((c) => c.name === agent.name),
-          )
-
-          if (parent) {
-            const siblingCount = props.agents.find((a) => a.name === parent.name)?.children.length ?? 1
-            const idx = props.agents
-              .find((a) => a.name === parent.name)
-              ?.children.findIndex((c) => c.name === agent.name) ?? 0
-            draft.positions.push({
-              name: agent.name,
-              x: parent.x + NODE_W + 80,
-              y: parent.y + idx * (NODE_H + 30) - ((siblingCount - 1) * (NODE_H + 30)) / 2,
-            })
-          } else {
-            draft.positions.push({
-              name: agent.name,
-              x: offsetX,
-              y: maxY + offsetY,
-            })
-            offsetY += NODE_H + 40
+          draft.positions.push({
+            name: agent.name,
+            x: offsetX,
+            y: offsetY,
+          })
+          offsetY += NODE_H + 40
+          if (offsetY > 500) {
+            offsetY = 100
+            offsetX += NODE_W + 80
           }
         }
       }),
     )
+    emitChange()
   }
 
-  onMount(() => {
-    ensurePositions()
-  })
-
-  // Sync props changes (use createEffect, not createMemo — this performs a
-  // side effect on the store, not a derived computation)
+  // Sync props changes — MERGE instead of overwrite to preserve auto-positions
   createEffect(() => {
     const state = props.canvasState
-    setStore("positions", state.positions)
+    // Only update if the prop actually has different data (avoid clobbering our own emit)
+    const incomingPos = state.positions
+    const currentNames = new Set(store.positions.map((p) => p.name))
+
+    // Merge: keep existing positions, add new ones from props that we don't have
+    const merged = [...store.positions]
+    for (const p of incomingPos) {
+      if (!currentNames.has(p.name)) {
+        merged.push(p)
+      }
+    }
+
+    // Only set if something actually changed
+    if (merged.length !== store.positions.length) {
+      setStore("positions", merged)
+    }
+
+    // Connections and teams can be replaced safely (they come from persistence)
     setStore("connections", state.connections)
     setStore("teams", state.teams)
+
+    // Restore viewport if present
+    if (state.viewport) {
+      setZoom(state.viewport.zoom)
+      setPanX(state.viewport.panX)
+      setPanY(state.viewport.panY)
+    }
+  })
+
+  onMount(() => {
+    cleanOrphanState()
+    ensurePositions()
+
+    const cleanup1 = makeEventListener(window, "pointermove", handlePointerMove)
+    const cleanup2 = makeEventListener(window, "pointerup", handlePointerUp)
+    const cleanup3 = makeEventListener(window, "click", handleClickOutside)
+    const cleanup4 = containerRef
+      ? makeEventListener(containerRef, "wheel", handleWheel, { passive: false })
+      : () => {}
+    onCleanup(() => { cleanup1(); cleanup2(); cleanup3(); cleanup4() })
   })
 
   // Get position for an agent
@@ -147,12 +199,31 @@ export function AgentCanvas(props: {
     }
   }
 
-  // Emit state changes
+  // Remove agent from team (explicit removal)
+  const removeAgentFromTeam = (agentName: string, teamId: string) => {
+    setStore("teams", (t) => t.id === teamId, produce((draft) => {
+      draft.agentNames = draft.agentNames.filter((n) => n !== agentName)
+    }))
+    emitChange()
+  }
+
+  // Emit state changes (including viewport)
   const emitChange = () => {
     props.onCanvasStateChange({
       positions: [...store.positions],
       connections: [...store.connections],
       teams: [...store.teams],
+      viewport: { zoom: zoom(), panX: panX(), panY: panY() },
+    })
+  }
+
+  // Emit viewport-only change (for zoom/pan without node changes)
+  const emitViewportChange = () => {
+    props.onCanvasStateChange({
+      positions: [...store.positions],
+      connections: [...store.connections],
+      teams: [...store.teams],
+      viewport: { zoom: zoom(), panX: panX(), panY: panY() },
     })
   }
 
@@ -171,14 +242,22 @@ export function AgentCanvas(props: {
     }
 
     setZoom(newZoom)
+    emitViewportChange()
   }
 
-  const zoomIn = () => setZoom((z) => Math.min(3, z * 1.2))
-  const zoomOut = () => setZoom((z) => Math.max(0.2, z / 1.2))
+  const zoomIn = () => {
+    setZoom((z) => Math.min(3, z * 1.2))
+    emitViewportChange()
+  }
+  const zoomOut = () => {
+    setZoom((z) => Math.max(0.2, z / 1.2))
+    emitViewportChange()
+  }
   const resetView = () => {
     setZoom(1)
     setPanX(0)
     setPanY(0)
+    emitViewportChange()
   }
 
   // --- PAN ---
@@ -186,6 +265,7 @@ export function AgentCanvas(props: {
     if (e.button === 2) return // right click handled separately
     if ((e.target as Element).closest("[data-node]")) return
     if ((e.target as Element).closest("[data-port]")) return
+    if ((e.target as Element).closest("[data-resize]")) return
 
     setDrag({ type: "pan", startX: e.clientX - panX(), startY: e.clientY - panY() })
     setSelected(null)
@@ -208,6 +288,24 @@ export function AgentCanvas(props: {
     setSelected(name)
     props.onSelect(name)
     setContextMenu(null)
+  }
+
+  // --- TEAM RESIZE ---
+  const handleResizePointerDown = (e: PointerEvent, teamId: string, handle: "br" | "tr" | "bl") => {
+    e.stopPropagation()
+    const team = store.teams.find((t) => t.id === teamId)
+    if (!team) return
+    setDrag({
+      type: "resize",
+      teamId,
+      resizeHandle: handle,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: team.x,
+      offsetY: team.y,
+      startW: team.width,
+      startH: team.height,
+    })
   }
 
   // --- TEAM EDITING ---
@@ -307,6 +405,27 @@ export function AgentCanvas(props: {
         (p) => p.name === d.nodeId,
         { x: newX, y: newY },
       )
+    } else if (d.type === "resize" && d.teamId) {
+      const dx = (e.clientX - d.startX) / zoom()
+      const dy = (e.clientY - d.startY) / zoom()
+      const team = store.teams.find((t) => t.id === d.teamId)
+      if (!team) return
+
+      if (d.resizeHandle === "br") {
+        const newW = Math.max(200, (d.startW ?? 400) + dx)
+        const newH = Math.max(150, (d.startH ?? 300) + dy)
+        setStore("teams", (t) => t.id === d.teamId, { width: newW, height: newH })
+      } else if (d.resizeHandle === "tr") {
+        const newW = Math.max(200, (d.startW ?? 400) + dx)
+        const newY = (d.offsetY ?? 0) + dy
+        const newH = Math.max(150, (d.startH ?? 300) - dy)
+        setStore("teams", (t) => t.id === d.teamId, { width: newW, y: newY, height: newH })
+      } else if (d.resizeHandle === "bl") {
+        const newX = (d.offsetX ?? 0) + dx
+        const newW = Math.max(200, (d.startW ?? 400) - dx)
+        const newH = Math.max(150, (d.startH ?? 300) + dy)
+        setStore("teams", (t) => t.id === d.teamId, { x: newX, width: newW, height: newH })
+      }
     }
   }
 
@@ -315,6 +434,10 @@ export function AgentCanvas(props: {
     if (d && d.type === "node") {
       syncTeamAgentNames()
       emitChange()
+    } else if (d && d.type === "resize") {
+      emitChange()
+    } else if (d && d.type === "pan") {
+      emitViewportChange()
     }
     setDrag(null)
   }
@@ -370,13 +493,17 @@ export function AgentCanvas(props: {
   }
 
   const createTeam = () => {
+    // Position new team at center of current viewport
+    const rect = containerRef?.getBoundingClientRect()
+    const cx = rect ? (rect.width / 2 - panX()) / zoom() : 100
+    const cy = rect ? (rect.height / 2 - panY()) / zoom() : 100
     const newTeam: AgentTeam = {
       id: `team-${Date.now()}`,
       name: "New Team",
       agentNames: [],
       color: "#6C5CE7",
-      x: panX() / zoom() + 50,
-      y: panY() / zoom() + 50,
+      x: cx - 200,
+      y: cy - 150,
       width: 400,
       height: 300,
     }
@@ -387,19 +514,6 @@ export function AgentCanvas(props: {
 
   // Close context menu on outside click
   const handleClickOutside = () => setContextMenu(null)
-
-  onMount(() => {
-    const cleanup1 = makeEventListener(window, "pointermove", handlePointerMove)
-    const cleanup2 = makeEventListener(window, "pointerup", handlePointerUp)
-    const cleanup3 = makeEventListener(window, "click", handleClickOutside)
-    const cleanup4 = containerRef
-      ? makeEventListener(containerRef, "wheel", handleWheel, { passive: false })
-      : () => {}
-    onCleanup(() => { cleanup1(); cleanup2(); cleanup3(); cleanup4() })
-  })
-
-  // Get all agent names
-  const allAgentNames = createMemo(() => props.agents.map((a) => a.name))
 
   return (
     <div
@@ -612,11 +726,38 @@ export function AgentCanvas(props: {
                       Empty team — drag agents here
                     </text>
                   </Show>
-                  {/* Resize handles (visible when editing) */}
+                  {/* Resize handles (visible when editing) — now functional */}
                   <Show when={isEditing}>
-                    <circle cx={team.x + team.width} cy={team.y + team.height} r={5} fill={team.color} opacity={0.6} style={{ cursor: "nwse-resize" }} />
-                    <circle cx={team.x + team.width} cy={team.y} r={5} fill={team.color} opacity={0.4} style={{ cursor: "nesw-resize" }} />
-                    <circle cx={team.x} cy={team.y + team.height} r={5} fill={team.color} opacity={0.4} style={{ cursor: "nesw-resize" }} />
+                    <circle
+                      data-resize="br"
+                      cx={team.x + team.width}
+                      cy={team.y + team.height}
+                      r={7}
+                      fill={team.color}
+                      opacity={0.8}
+                      style={{ cursor: "nwse-resize" }}
+                      onPointerDown={(e) => handleResizePointerDown(e, team.id, "br")}
+                    />
+                    <circle
+                      data-resize="tr"
+                      cx={team.x + team.width}
+                      cy={team.y}
+                      r={7}
+                      fill={team.color}
+                      opacity={0.6}
+                      style={{ cursor: "nesw-resize" }}
+                      onPointerDown={(e) => handleResizePointerDown(e, team.id, "tr")}
+                    />
+                    <circle
+                      data-resize="bl"
+                      cx={team.x}
+                      cy={team.y + team.height}
+                      r={7}
+                      fill={team.color}
+                      opacity={0.6}
+                      style={{ cursor: "nesw-resize" }}
+                      onPointerDown={(e) => handleResizePointerDown(e, team.id, "bl")}
+                    />
                   </Show>
                 </g>
               )
@@ -853,7 +994,7 @@ export function AgentCanvas(props: {
             border: "1px solid #333",
             "border-radius": "10px",
             padding: "16px",
-            "min-width": "320px",
+            "min-width": "360px",
             display: "flex",
             "flex-direction": "column",
             gap: "10px",
@@ -906,7 +1047,7 @@ export function AgentCanvas(props: {
             </label>
           </div>
 
-          {/* Team members */}
+          {/* Team members — now with remove buttons */}
           <div>
             <span style={{ "font-size": "12px", color: "#999" }}>Members ({getTeamAgentNames(editingTeam()?.id ?? "").length})</span>
             <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }}>
@@ -918,7 +1059,7 @@ export function AgentCanvas(props: {
                       display: "flex",
                       "align-items": "center",
                       gap: "6px",
-                      padding: "4px 10px",
+                      padding: "4px 4px 4px 10px",
                       "border-radius": "6px",
                       background: agentColor + "18",
                       border: "1px solid " + agentColor + "44",
@@ -930,6 +1071,15 @@ export function AgentCanvas(props: {
                         background: agentColor,
                       }} />
                       <span style={{ "font-size": "12px", color: "#ddd" }}>{memberName}</span>
+                      <button
+                        onClick={() => removeAgentFromTeam(memberName, editingTeam()!.id)}
+                        style={{
+                          width: "18px", height: "18px", display: "flex", "align-items": "center", "justify-content": "center",
+                          "border-radius": "4px", border: "none", background: "transparent", color: "#999",
+                          "font-size": "12px", cursor: "pointer",
+                        }}
+                        title="Remove from team"
+                      >✕</button>
                     </div>
                   )
                 }}

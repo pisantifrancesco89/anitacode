@@ -1,38 +1,43 @@
-import { createSignal, For, Show, createMemo } from "solid-js"
+import { createSignal, For, Show, createMemo, createEffect } from "solid-js"
 import { createStore } from "solid-js/store"
+import { createQuery } from "@tanstack/solid-query"
 import type { AgentForm, AgentNode, AgentCanvasState } from "./types"
 import { AgentEditor } from "./agent-editor"
 import { AgentCanvas } from "./agent-canvas"
-import { useServerSync } from "@/context/server-sync"
+import { useServerSync, useQueryOptions } from "@/context/server-sync"
+import { pathKey } from "@/utils/path-key"
+import type { Agent } from "@opencode-ai/sdk/v2/client"
 
-// Core OpenCode agents (native, always shown)
-const OPENCODE_CORE = new Set(["build", "plan", "general", "explore", "compaction", "title", "summary"])
+const CANVAS_STORAGE_PREFIX = "anitacode.agent-canvas"
 
-const CANVAS_STORAGE_KEY = "anitacode.agent-canvas"
+function canvasStorageKey(directory: string | undefined): string {
+  return directory ? `${CANVAS_STORAGE_PREFIX}.${directory}` : CANVAS_STORAGE_PREFIX
+}
 
-function loadCanvasState(): AgentCanvasState {
+function loadCanvasState(directory: string | undefined): AgentCanvasState {
   try {
-    const raw = localStorage.getItem(CANVAS_STORAGE_KEY)
+    const raw = localStorage.getItem(canvasStorageKey(directory))
     return raw ? JSON.parse(raw) : defaultCanvasState()
   } catch {
     return defaultCanvasState()
   }
 }
 
-function saveCanvasState(state: AgentCanvasState) {
+function saveCanvasState(directory: string | undefined, state: AgentCanvasState) {
   try {
-    localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(state))
+    localStorage.setItem(canvasStorageKey(directory), JSON.stringify(state))
   } catch {
     // Ignore storage errors
   }
 }
 
 function defaultCanvasState(): AgentCanvasState {
-  return { positions: [], connections: [], teams: [] }
+  return { positions: [], connections: [], teams: [], viewport: { zoom: 1, panX: 0, panY: 0 } }
 }
 
 export default function AgentsPage() {
-  const sync = useServerSync()
+  const serverSync = useServerSync()
+  const queryOptions = useQueryOptions()
   const [viewMode, setViewMode] = createSignal<"canvas" | "editor">("canvas")
   const [selectedAgent, setSelectedAgent] = createSignal<string>("")
   const [editingAgent, setEditingAgent] = createSignal<AgentForm | undefined>()
@@ -40,32 +45,48 @@ export default function AgentsPage() {
   const [search, setSearch] = createSignal("")
   const [showAll, setShowAll] = createSignal(false)
 
-  const config = createMemo(() => sync().data.config)
-  const providerList = createMemo(() => sync().data.provider)
+  const config = createMemo(() => serverSync().data.config)
+  const providerList = createMemo(() => serverSync().data.provider)
 
-  // Canvas state (persisted in localStorage, NOT in opencode.jsonc config
-  // since agent_canvas is not a field in the Config schema)
-  const [canvasState, setCanvasState] = createSignal<AgentCanvasState>(loadCanvasState())
+  // Directory for per-project canvas state and agent loading
+  const directory = createMemo(() => serverSync().data.path.directory)
+
+  // Load merged agents (native + custom) from the server
+  const agentsQuery = createQuery(() => {
+    const dir = directory()
+    return {
+      ...queryOptions().agents(pathKey(dir ?? "")),
+      enabled: !!dir,
+    }
+  })
+  const agents = (): Agent[] => agentsQuery.data ?? []
+
+  // Canvas state (persisted per-project in localStorage)
+  const [canvasState, setCanvasState] = createSignal<AgentCanvasState>(loadCanvasState(directory()))
+
+  // Reload canvas state when directory changes
+  createEffect(() => {
+    const dir = directory()
+    setCanvasState(loadCanvasState(dir))
+  })
 
   const agentList = createMemo(() => {
-    const agents = config()?.agent ?? {}
     const q = search().toLowerCase()
-    const result: AgentNode[] = []
-    for (const [name, cfg] of Object.entries(agents)) {
-      if (!cfg || cfg.hidden) continue
-      // Filter: by default show only OpenCode core agents, unless showAll is toggled
-      if (!showAll() && !OPENCODE_CORE.has(name)) continue
-      // Search filter
-      if (q && !name.toLowerCase().includes(q) && !(cfg.description ?? "").toLowerCase().includes(q)) continue
-      result.push({
-        name,
-        description: cfg.description ?? "",
-        mode: (cfg.mode as "subagent" | "primary" | "all") ?? "subagent",
-        color: cfg.color ?? "#6C5CE7",
+    return agents()
+      .filter((a) => (showAll() ? true : a.native))
+      .filter(
+        (a) =>
+          !q ||
+          a.name.toLowerCase().includes(q) ||
+          (a.description ?? "").toLowerCase().includes(q),
+      )
+      .map((a) => ({
+        name: a.name,
+        description: a.description ?? "",
+        mode: a.mode,
+        color: a.color ?? "#6C5CE7",
         children: [],
-      })
-    }
-    return result
+      }))
   })
 
   const models = createMemo(() => {
@@ -110,8 +131,7 @@ export default function AgentsPage() {
 
   const handleCanvasStateChange = async (state: AgentCanvasState) => {
     setCanvasState(state)
-    // Persist to localStorage (not opencode.jsonc — agent_canvas is not a Config field)
-    saveCanvasState(state)
+    saveCanvasState(directory(), state)
   }
 
   const handleNodeSelect = (name: string) => {
@@ -120,21 +140,23 @@ export default function AgentsPage() {
       return
     }
     setSelectedAgent(name)
+    // Build form from merged agent data if available, fall back to config
+    const agent = agents().find((a) => a.name === name)
     const cfg = config()?.agent
     const agentCfg = cfg ? (cfg as any)[name] : undefined
-    if (agentCfg) {
-      const perm = (agentCfg.permission && typeof agentCfg.permission === "object" ? agentCfg.permission : {}) as Record<string, string>
+    if (agent || agentCfg) {
+      const perm = (agentCfg?.permission && typeof agentCfg.permission === "object" ? agentCfg.permission : {}) as Record<string, string>
       setEditingAgent({
         name,
-        description: agentCfg.description ?? "",
-        mode: (agentCfg.mode as "subagent" | "primary" | "all") ?? "subagent",
-        model: agentCfg.model ?? "",
-        temperature: agentCfg.temperature ?? 0.3,
-        topP: agentCfg.top_p ?? 1,
-        maxSteps: agentCfg.maxSteps ?? agentCfg.steps ?? 25,
-        color: typeof agentCfg.color === "string" ? agentCfg.color : "#6C5CE7",
-        hidden: agentCfg.hidden ?? false,
-        disabled: agentCfg.disable ?? false,
+        description: agent?.description ?? agentCfg?.description ?? "",
+        mode: (agent?.mode ?? agentCfg?.mode ?? "subagent") as "subagent" | "primary" | "all",
+        model: agent?.model ? `${agent.model.providerID}/${agent.model.modelID}` : (agentCfg?.model ?? ""),
+        temperature: agent?.temperature ?? agentCfg?.temperature ?? 0.3,
+        topP: agent?.topP ?? agentCfg?.top_p ?? 1,
+        maxSteps: agentCfg?.maxSteps ?? agentCfg?.steps ?? 25,
+        color: typeof (agent?.color ?? agentCfg?.color) === "string" ? (agent?.color ?? agentCfg?.color) : "#6C5CE7",
+        hidden: agentCfg?.hidden ?? false,
+        disabled: agentCfg?.disable ?? false,
         permission: {
           edit: (perm.edit ?? "ask") as "ask" | "allow" | "deny",
           bash: (perm.bash ?? "ask") as "ask" | "allow" | "deny",
@@ -142,8 +164,8 @@ export default function AgentsPage() {
           doomLoop: (perm.doom_loop ?? "allow") as "ask" | "allow" | "deny",
           externalDirectory: (perm.external_directory ?? "ask") as "ask" | "allow" | "deny",
         },
-        tools: agentCfg.tools ?? {},
-        prompt: agentCfg.prompt ?? "",
+        tools: agentCfg?.tools ?? {},
+        prompt: agent?.prompt ?? agentCfg?.prompt ?? "",
       })
       setViewMode("editor")
     }
@@ -177,7 +199,9 @@ export default function AgentsPage() {
       }
 
       const updatedAgent = { ...currentAgent, [form.name]: agentConfig }
-      await sync().updateConfig({ ...currentConfig, agent: updatedAgent } as any)
+      await serverSync().updateConfig({ ...currentConfig, agent: updatedAgent } as any)
+      // Refetch agents to reflect changes
+      void agentsQuery.refetch()
     } finally {
       setSaving(false)
       setViewMode("canvas")
@@ -192,7 +216,8 @@ export default function AgentsPage() {
       const currentConfig = config() ?? {}
       const currentAgent = { ...((currentConfig as any).agent ?? {}) }
       delete currentAgent[editingAgent()!.name]
-      await sync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
+      await serverSync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
+      void agentsQuery.refetch()
     } finally {
       setSaving(false)
       setViewMode("canvas")
@@ -204,7 +229,8 @@ export default function AgentsPage() {
     const currentConfig = config() ?? {}
     const currentAgent = { ...((currentConfig as any).agent ?? {}) }
     delete currentAgent[name]
-    await sync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
+    await serverSync().updateConfig({ ...currentConfig, agent: currentAgent } as any)
+    void agentsQuery.refetch()
   }
 
   const handleNewAgent = () => {
@@ -267,13 +293,7 @@ export default function AgentsPage() {
             onClick={() => setShowAll(true)}
             style={filterBtnStyle(showAll())}
           >
-            All ({(() => {
-              const agents = config()?.agent ?? {}
-              return Object.keys(agents).filter((n) => {
-                const cfg = agents[n]
-                return cfg && !cfg.hidden
-              }).length
-            })()})
+            All ({agents().length})
           </button>
         </div>
 
@@ -296,7 +316,7 @@ export default function AgentsPage() {
               >
                 <div style={{ width: "8px", height: "8px", "border-radius": "50%", "background-color": agent.color }} />
                 <span style={{ flex: 1 }}>{agent.name}</span>
-                <Show when={OPENCODE_CORE.has(agent.name)}>
+                <Show when={agents().find((a) => a.name === agent.name)?.native}>
                   <span style={{ "font-size": "9px", color: "#6C5CE7", background: "rgba(108,92,231,0.15)", padding: "1px 4px", "border-radius": "3px" }}>core</span>
                 </Show>
                 <span style={{ "font-size": "10px", color: "#666" }}>{agent.mode}</span>
@@ -305,7 +325,7 @@ export default function AgentsPage() {
           </For>
           <Show when={agentList().length === 0}>
             <div style={{ padding: "16px", "text-align": "center", color: "#666", "font-size": "12px" }}>
-              No agents found
+              {agentsQuery.isLoading ? "Loading agents..." : "No agents found"}
             </div>
           </Show>
         </div>

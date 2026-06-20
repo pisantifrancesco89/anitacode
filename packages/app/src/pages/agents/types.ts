@@ -59,8 +59,15 @@ export interface AgentTeam {
   height: number
 }
 
+export interface AgentViewport {
+  zoom: number
+  panX: number
+  panY: number
+}
+
 export interface AgentCanvasState {
   positions: AgentPosition[]
   connections: AgentConnection[]
   teams: AgentTeam[]
+  viewport?: AgentViewport
 }
